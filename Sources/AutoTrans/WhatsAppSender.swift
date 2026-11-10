@@ -14,7 +14,7 @@ enum WhatsAppSender {
 
     enum SendError: Error, LocalizedError {
         case notRunning, noPermission, noWindow, chatNotFound(String), wrongChat(String, String)
-        case noInput, draftNotEmpty, couldNotSend, phoneNotOpened, pasteFailed, filePreviewNoSend
+        case noInput, draftNotEmpty, couldNotSend, phoneNotOpened, pasteFailed, filePreviewNoSend, filePreviewNotShown, previewAlreadyOpen
         var errorDescription: String? {
             switch self {
             case .notRunning: return "WhatsApp 没有打开，请先打开 WhatsApp"
@@ -25,6 +25,8 @@ enum WhatsAppSender {
             case .noInput: return "没找到 WhatsApp 的输入框，没有发送"
             case .draftNotEmpty: return "WhatsApp 里这个聊天的输入框已经有没发出去的文字。为了不覆盖它，没有发送，请先清空"
             case .pasteFailed: return "WhatsApp 没有把它当成文件（粘贴成了文字），已清掉，没有发送"
+            case .filePreviewNotShown: return "WhatsApp 没有弹出文件预览，文件没有发出。可以再按一次「发文件」"
+            case .previewAlreadyOpen: return "WhatsApp 里已经有一个没发出去的文件预览。请先切到 WhatsApp 点发送或取消，再发"
             case .filePreviewNoSend: return "文件已放进 WhatsApp，但没找到发送按钮。请切到 WhatsApp 看一下，手动点发送或取消"
             case .phoneNotOpened: return "WhatsApp 没有打开和这个号码的聊天。请检查号码；如果 WhatsApp 提示「号码不在 WhatsApp 上」，说明对方没用 WhatsApp"
             case .couldNotSend: return "已把译文填进 WhatsApp 的输入框，但没能自动发出。请切到 WhatsApp 按回车"
@@ -111,6 +113,17 @@ enum WhatsAppSender {
         let (app, window, input) = try await openVerified(chatName)
         let existing = (attr(input, kAXValueAttribute) as? String) ?? ""
         guard existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw SendError.draftNotEmpty }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        func previewSendButton() -> AXUIElement? {
+            let windows = (attr(axApp, kAXWindowsAttribute) as? [AXUIElement]) ?? [window]
+            for w in windows {
+                if let b = findAll(w, where: isPreviewSendButton).first { return b }
+            }
+            return nil
+        }
+        // 上次没发完的预览还开着：再粘贴会把两个文件混在一起，先让用户处理
+        if previewSendButton() != nil { SendLog.add("预览已开着，停"); throw SendError.previewAlreadyOpen }
+        SendLog.add("开始发 \(urls.map(\.lastPathComponent))")
 
         // 暂存剪贴板
         let pb = NSPasteboard.general
@@ -126,33 +139,47 @@ enum WhatsAppSender {
         pb.clearContents()
         pb.writeObjects(urls as [NSURL])
 
+        // ⌘V 必须落在 WhatsApp 上：等它真的到了最前面（最多 3 秒），不是只等固定时间
         app.activate()
-        try await Task.sleep(for: .milliseconds(400))
+        for _ in 0..<30 where NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            SendLog.add("WhatsApp 没切到前面"); throw SendError.filePreviewNotShown
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        // 焦点必须在输入框里，WhatsApp 才接粘贴（焦点在左侧列表时 ⌘V 没反应）。
+        // 先用辅助功能设焦点；没设上就在输入框中间点一下鼠标
         AXUIElementSetAttributeValue(input, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(300))
+        func focusedDesc() -> String {
+            guard let f = attr(axApp, kAXFocusedUIElementAttribute) else { return "无" }
+            let el = f as! AXUIElement
+            return "\(role(el) ?? "?") \(attr(el, kAXIdentifierAttribute) as? String ?? "")"
+        }
+        func inputFocused() -> Bool { (attr(input, kAXFocusedAttribute) as? Bool) == true }
+        if !inputFocused() {
+            SendLog.add("输入框没拿到焦点（焦点在：\(focusedDesc())），点一下输入框")
+            clickCenter(of: input)
+            try await Task.sleep(for: .milliseconds(400))
+        }
+        SendLog.add("⌘V（焦点：\(focusedDesc())）")
         pressCommandV()
 
-        // 最多等 10 秒：出现文件预览（底部有「发送」按钮）
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
-        func previewSendButton() -> AXUIElement? {
-            let windows = (attr(axApp, kAXWindowsAttribute) as? [AXUIElement]) ?? [window]
-            for w in windows {
-                if let b = findAll(w, where: isPreviewSendButton).first { return b }
-            }
-            return nil
-        }
+        // 最多等 15 秒：出现文件预览（底部有「发送」按钮）
         var btn: AXUIElement?
-        for _ in 0..<50 {
+        for _ in 0..<75 {
             try await Task.sleep(for: .milliseconds(200))
             // 安全：如果粘进去的是文字（文件路径），说明没当成文件，清掉、不发
             let v = ((attr(input, kAXValueAttribute) as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !v.isEmpty {
                 AXUIElementSetAttributeValue(input, kAXValueAttribute as CFString, "" as CFString)
-                throw SendError.pasteFailed
+                SendLog.add("粘成了文字"); throw SendError.pasteFailed
             }
             if let b = previewSendButton() { btn = b; break }
         }
-        guard var button = btn else { throw SendError.filePreviewNoSend }
+        guard var button = btn else { SendLog.add("15 秒没等到预览"); throw SendError.filePreviewNotShown }
+        SendLog.add("预览出现")
 
         // 预览刚弹出时有动画，太早点会被忽略：等按钮可用、再稳 0.8 秒
         for _ in 0..<10 where (attr(button, kAXEnabledAttribute) as? Bool) == false {
@@ -171,9 +198,10 @@ enum WhatsAppSender {
             }
             for _ in 0..<15 {
                 try await Task.sleep(for: .milliseconds(200))
-                if previewSendButton() == nil { return }   // 预览关了 = 发出去了
+                if previewSendButton() == nil { SendLog.add("第 \(attempt + 1) 次后预览关了"); return }   // 预览关了 = 发出去了
             }
             if let b = previewSendButton() { button = b }
+            SendLog.add("第 \(attempt + 1) 次点了，预览没关；按钮 enabled=\(String(describing: attr(button, kAXEnabledAttribute)))")
         }
         throw SendError.filePreviewNoSend
     }
@@ -187,6 +215,17 @@ enum WhatsAppSender {
             return ["发送", "send", "enviar"].contains(norm(desc(el)).lowercased())
         }
         return false
+    }
+
+    private static func clickCenter(of el: AXUIElement) {
+        var pos = CGPoint.zero, size = CGSize.zero
+        if let v = attr(el, kAXPositionAttribute) { AXValueGetValue(v as! AXValue, .cgPoint, &pos) }
+        if let v = attr(el, kAXSizeAttribute) { AXValueGetValue(v as! AXValue, .cgSize, &size) }
+        guard size.width > 0 else { return }
+        let p = CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+        let src = CGEventSource(stateID: .hidSystemState)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
     }
 
     private static func pressCommandV() {
@@ -440,5 +479,19 @@ enum WhatsAppSender {
         let src = CGEventSource(stateID: .hidSystemState)
         CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: true)?.post(tap: .cghidEventTap)
         CGEvent(keyboardEventSource: src, virtualKey: 36, keyDown: false)?.post(tap: .cghidEventTap)
+    }
+}
+
+
+/// 发文件的步骤日志：~/Library/Application Support/autoTrans/send-log.txt（只留最近 300 行，不含聊天内容）
+enum SendLog {
+    static func add(_ line: String) {
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("autoTrans/send-log.txt")
+        let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm:ss.SSS"
+        var lines = ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        lines.append("\(f.string(from: Date()))  \(line)")
+        if lines.count > 300 { lines.removeFirst(lines.count - 300) }
+        try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 }
