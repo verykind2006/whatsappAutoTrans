@@ -330,7 +330,7 @@ struct VoiceSection: View {
                             // 方式三：自己指定
                             Button("我已经下载过，选择文件夹…") { choose() }.appButton()
                         }
-                        Text("下载到：\(WhisperModel.base.path)（不在 OneDrive 里）。这台电脑还剩 \(WhisperModel.gb(WhisperModel.freeSpace())) 空间。")
+                        Text("会下载到：\(WhisperModel.base.path)。这台电脑还剩 \(WhisperModel.gb(WhisperModel.freeSpace())) 空间。")
                             .font(Theme.caption).foregroundStyle(Theme.inkSoft).textSelection(.enabled)
                     }
                 }
@@ -360,7 +360,7 @@ struct VoiceSection: View {
             let info = WhisperModel.resolve(url.path).map(WhisperModel.folderInfo)
             model.useWhisperFolder(url.path)
             if let info, info.cloudOnly {
-                model.whisperMessage = "⚠ 已使用，但这个文件夹里有 OneDrive「仅在线」的文件，第一次用时要先从云端下载，会很慢。建议在访达里右键 →「始终保留在此设备上」。"
+                model.whisperMessage = "⚠ 已使用，但这个文件夹里有只存在云盘（iCloud、OneDrive 等）、没下载到本机的文件，第一次用时要先从云端下载，会很慢。建议在访达里右键 →「始终保留在此设备上」。"
             }
         }
     }

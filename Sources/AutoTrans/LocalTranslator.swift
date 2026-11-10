@@ -77,7 +77,7 @@ actor LocalTranslator {
             let gb = String(format: "%.1f", Double(total) / 1_073_741_824)
             out.append(ModelCheck(ok: true, text: "权重文件 \(weights.count) 个，共 \(gb) GB"))
             if !cloudOnly.isEmpty {
-                out.append(ModelCheck(ok: false, text: "有文件还在 OneDrive 云端没下载到本机：\(cloudOnly.joined(separator: "、"))。请在访达里右键这个文件夹 →「始终保留在此设备上」"))
+                out.append(ModelCheck(ok: false, text: "有文件还在云盘（iCloud、OneDrive 等）里没下载到本机：\(cloudOnly.joined(separator: "、"))。请在访达里右键这个文件夹 →「始终保留在此设备上」"))
             }
         }
         return out

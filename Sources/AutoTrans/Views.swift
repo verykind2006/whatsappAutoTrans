@@ -547,6 +547,7 @@ struct MessageRow: View {
                 }
 
                 if message.kind == .audio { voiceHeader }
+                if message.kind == .document || message.kind == .video { fileRow }
 
                 content
 
@@ -581,6 +582,26 @@ struct MessageRow: View {
             Label("已读", systemImage: "checkmark").labelStyle(ReceiptLabelStyle(double: true))
                 .foregroundStyle(Color(hex: 0x0B5E8E))
                 .fontWeight(.semibold)
+        }
+    }
+
+    /// 文件 / 视频：「打开」「在访达中显示」。WhatsApp 存的文件名是一串乱码，
+    /// 所以先拷一份成原来的名字（放临时文件夹），再打开它
+    @ViewBuilder private var fileRow: some View {
+        if let path = message.mediaPath {
+            HStack(spacing: 10) {
+                Button { FileOpener.open(path, name: message.text, id: message.id, reveal: false) } label: {
+                    Label("打开", systemImage: "doc.text.magnifyingglass")
+                }
+                Button { FileOpener.open(path, name: message.text, id: message.id, reveal: true) } label: {
+                    Label("在访达中显示", systemImage: "folder")
+                }
+            }
+            .buttonStyle(.plain)
+            .labelStyle(SmallActionLabelStyle())
+        } else {
+            Text("还没下载：在 WhatsApp 里点开这个文件，这里就能打开")
+                .font(Theme.small).foregroundStyle(Theme.inkSoft)
         }
     }
 
@@ -1086,5 +1107,45 @@ private struct ReceiptLabelStyle: LabelStyle {
             configuration.title
         }
         .help("WhatsApp 显示的发送状态")
+    }
+}
+
+
+/// 气泡里的小按钮：浅绿底 + 深绿字 + 图标（和语音的「播放」一样）
+private struct SmallActionLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 5) { configuration.icon; configuration.title }
+            .font(Theme.f(15, .semibold)).foregroundStyle(Theme.accent)
+            .padding(.horizontal, 10).padding(.vertical, 3)
+            .background(Capsule().fill(Theme.accentBg))
+            .contentShape(Capsule())
+    }
+}
+
+/// 把 WhatsApp 里的文件拷成原名再打开 / 在访达中显示。不动 WhatsApp 自己的文件
+enum FileOpener {
+    static func open(_ path: String, name: String, id: Int, reveal: Bool) {
+        let src = URL(fileURLWithPath: path)
+        let ext = src.pathExtension
+        var base = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        if base.isEmpty { base = "文件" }
+        if !ext.isEmpty, (base as NSString).pathExtension.lowercased() != ext.lowercased() { base += "." + ext }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("autoTrans-files/\(id)", isDirectory: true)
+        let dst = dir.appendingPathComponent(base)
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: dst.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            if (try? fm.copyItem(at: src, to: dst)) == nil {
+                // 拷不了就直接用原文件
+                show(src, reveal); return
+            }
+        }
+        show(dst, reveal)
+    }
+
+    private static func show(_ url: URL, _ reveal: Bool) {
+        if reveal { NSWorkspace.shared.activateFileViewerSelecting([url]) } else { NSWorkspace.shared.open(url) }
     }
 }
