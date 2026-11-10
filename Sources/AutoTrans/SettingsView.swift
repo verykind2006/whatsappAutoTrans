@@ -6,19 +6,17 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                PermissionStatus()
-                Divider()
-                EngineSection()
-                Divider()
-                StyleSection()
-                Divider()
-                VoiceSection()
-            }
-            .padding(28)
+        TabView {
+            SettingsPage { PermissionStatus() }
+                .tabItem { Label("权限", systemImage: "lock.shield") }
+            SettingsPage { EngineSection() }
+                .tabItem { Label("翻译", systemImage: "character.bubble") }
+            SettingsPage { StyleSection() }
+                .tabItem { Label("建议回复", systemImage: "lightbulb") }
+            SettingsPage { VoiceSection() }
+                .tabItem { Label("语音", systemImage: "waveform") }
         }
-        .frame(width: 680, height: 720)
+        .frame(width: 720, height: 680)
         .foregroundStyle(Theme.ink)
         .background(Theme.bg)
         .preferredColorScheme(.light)
@@ -30,16 +28,14 @@ struct EngineSection: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("用什么翻译").font(Theme.label)
+        VStack(alignment: .leading, spacing: 18) {
+            Card("用什么翻译", subtitle: "联网模型翻得最好，按用量付费；本机模型不联网、不花钱，但质量差一些。") {
                 Picker("", selection: $model.engine) {
                     ForEach(TranslationEngine.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.radioGroup).labelsHidden()
-                .font(Theme.body)
+                .font(Theme.text)
             }
-            Divider()
             if model.engine == .online { OnlineSection() } else { LocalModelSection() }
         }
     }
@@ -57,40 +53,36 @@ struct OnlineSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // 服务商
-            VStack(alignment: .leading, spacing: 10) {
-                Text("服务商").font(Theme.label)
+            Card("服务商") {
                 Picker("", selection: $model.provider) {
                     ForEach(OnlineProvider.allCases) { Text($0.title).tag($0) }
                 }
-                .pickerStyle(.radioGroup).labelsHidden().font(Theme.body)
+                .pickerStyle(.radioGroup).labelsHidden().font(Theme.text)
                 if model.provider == .custom {
-                    Text("接口地址（支持 OpenAI 兼容格式的服务，如通义千问、Kimi、智谱等）").font(Theme.small)
-                    TextField("例如 https://api.example.com/v1", text: $model.customBaseURL)
-                        .textFieldStyle(.roundedBorder).font(Theme.body)
+                    CardDivider()
+                    Text("接口地址").font(Theme.f(18, .semibold))
+                    Text("支持 OpenAI 兼容格式的服务，如通义千问、Kimi、智谱等").font(Theme.caption).foregroundStyle(Theme.inkSoft)
+                    TextField("例如 https://api.example.com/v1", text: $model.customBaseURL).fieldBox()
                 }
             }
 
-            // API key
-            VStack(alignment: .leading, spacing: 10) {
-                Text("API key").font(Theme.label)
-                Text(model.hasKey ? "✓ 已保存在本机" : "✗ 还没有填")
-                    .font(Theme.body)
-                    .foregroundStyle(model.hasKey ? Theme.accent : Theme.warn)
-                Text(model.provider.keyHint).font(Theme.small).foregroundStyle(Theme.inkSoft)
-                HStack {
-                    SecureField(model.hasKey ? "要更换时，粘贴新的 key" : "粘贴 API key", text: $newKey)
-                        .textFieldStyle(.roundedBorder).font(Theme.body)
+            Card("API key", subtitle: model.provider.keyHint) {
+                StatusBadge(ok: model.hasKey, text: model.hasKey ? "已保存在本机" : "还没有填")
+            } content: {
+                HStack(spacing: 10) {
+                    SecureField(model.hasKey ? "要更换时，粘贴新的 key" : "粘贴 API key", text: $newKey).fieldBox()
                     Button(verifying ? "验证中…" : "验证并保存") { verifyKey() }
+                        .appButton(.primary)
                         .disabled(newKey.isEmpty || verifying)
-                        .font(Theme.body).controlSize(.large)
                 }
-                if let keyMessage { Text(keyMessage).font(Theme.small).textSelection(.enabled) }
+                if let keyMessage {
+                    Text(keyMessage).font(Theme.caption)
+                        .foregroundStyle(keyMessage.hasPrefix("✗") ? Theme.warn : Theme.accent)
+                        .textSelection(.enabled)
+                }
             }
 
-            // 模型
-            VStack(alignment: .leading, spacing: 10) {
-                Text("模型").font(Theme.label)
+            Card("模型", subtitle: model.provider == .anthropic ? "推荐 claude-opus-5-5（默认）" : nil) {
                 if !modelList.isEmpty {
                     Picker("", selection: Binding(
                         get: { model.modelName },
@@ -101,17 +93,13 @@ struct OnlineSection: View {
                         if model.modelName.isEmpty { Text("请选择…").tag("") }
                         ForEach(modelList, id: \.self) { Text($0).tag($0) }
                     }
-                    .labelsHidden().font(Theme.body)
+                    .labelsHidden().font(Theme.text).frame(maxWidth: 360, alignment: .leading)
                 } else {
                     TextField("模型名", text: Binding(
                         get: { model.modelName },
-                        set: { model.models[model.provider.rawValue] = $0 }))
-                        .textFieldStyle(.roundedBorder).font(Theme.body)
+                        set: { model.models[model.provider.rawValue] = $0 })).fieldBox()
                     Text(model.hasKey ? (listError ?? "正在读取可用模型…") : "填好 key 之后，这里会列出可选的模型")
-                        .font(Theme.small).foregroundStyle(Theme.inkSoft)
-                }
-                if model.provider == .anthropic {
-                    Text("推荐 claude-opus-5-5（默认）").font(Theme.small).foregroundStyle(Theme.inkSoft)
+                        .font(Theme.caption).foregroundStyle(Theme.inkSoft)
                 }
             }
         }
@@ -162,19 +150,17 @@ struct LocalModelSection: View {
     private let sample = "Hola Ana, mañana a las 10 paso por Calle Mayor 5 para arreglar la caldera, ¿vale?"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("本机模型所在目录").font(Theme.label)
+        Card("本机模型", subtitle: "需要 MLX 格式的模型文件夹（例如 Qwen2.5-7B-Instruct-4bit），里面应有 config.json、tokenizer.json 和 .safetensors 文件。") {
+            if !model.localModelPath.isEmpty {
+                StatusBadge(ok: !checks.isEmpty && !checks.contains { !$0.ok }, text: checks.contains { !$0.ok } ? "文件不全" : "已选择")
+            }
+        } content: {
             Text(model.localModelPath.isEmpty ? "（还没有选择）" : model.localModelPath)
                 .font(.system(size: 16 * Theme.scale, design: .monospaced))
                 .textSelection(.enabled)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-            Button("选择目录…") { chooseDirectory() }
-                .font(Theme.body).controlSize(.large)
-            Text("需要 MLX 格式的模型文件夹（例如 Qwen2.5-7B-Instruct-4bit），里面应有 config.json、tokenizer.json 和 .safetensors 文件。")
-                .font(Theme.small).foregroundStyle(Theme.inkSoft)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.canvas))
 
             // 文件检查结果：✓/✗ 符号 + 颜色，不只靠颜色
             if !checks.isEmpty {
@@ -184,18 +170,22 @@ struct LocalModelSection: View {
                             .foregroundStyle(c.ok ? Theme.ink : Theme.warn)
                     }
                 }
-                .font(Theme.small)
+                .font(Theme.caption)
             }
 
-            // 真正加载模型试译一句：文件齐全不代表能用
-            Button(trialRunning ? "试译中…" : "试译一句，确认能用") { runTrial() }
-                .disabled(trialRunning || checks.isEmpty || checks.contains { !$0.ok })
-                .font(Theme.body).controlSize(.large)
-            if let trialResult {
-                Text(trialResult).font(Theme.small).textSelection(.enabled)
+            HStack(spacing: 10) {
+                Button("选择目录…") { chooseDirectory() }.appButton()
+                // 真正加载模型试译一句：文件齐全不代表能用
+                Button(trialRunning ? "试译中…" : "试译一句，确认能用") { runTrial() }
+                    .appButton(.primary)
+                    .disabled(trialRunning || checks.isEmpty || checks.contains { !$0.ok })
             }
-            Text("提示：本机模型运行时占用约 5 GB 内存；第一次加载要十几秒到一分钟。翻译质量比联网模型差，西班牙口语可能翻得生硬。")
-                .font(Theme.small).foregroundStyle(Theme.inkSoft)
+            if let trialResult {
+                Text(trialResult).font(Theme.caption).textSelection(.enabled)
+            }
+            CardDivider()
+            Text("运行时占用约 5 GB 内存；第一次加载要十几秒到一分钟。翻译质量比联网模型差，西班牙口语可能翻得生硬。")
+                .font(Theme.caption).foregroundStyle(Theme.inkSoft)
         }
         .onAppear { checks = LocalTranslator.checkDirectory(model.localModelPath) }
     }
@@ -240,22 +230,23 @@ struct PermissionStatus: View {
     @State private var axOK = WhatsAppSender.hasPermission
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("权限").font(Theme.label)
-            Text(model.hasDBAccess ? "✓ 读取 WhatsApp 聊天记录（完全磁盘访问权限）" : "✗ 不能读取聊天记录（完全磁盘访问权限）")
-                .foregroundStyle(model.hasDBAccess ? Theme.ink : Theme.warn)
-            HStack(spacing: 12) {
-                Text(axOK ? "✓ 在 WhatsApp 里发消息（设备控制和数据访问）" : "✗ 不能发消息（设备控制和数据访问）")
-                    .foregroundStyle(axOK ? Theme.ink : Theme.warn)
-                if !axOK {
-                    Button("请求权限") { WhatsAppSender.requestPermission() }
+        Card("系统权限", subtitle: "autoTrans 需要两项权限。在「系统设置 → 隐私与安全性」里开关。") {
+            CardRow(title: "读取聊天记录", detail: "完全磁盘访问权限：读 WhatsApp 本机的聊天数据库（只读）") {
+                StatusBadge(ok: model.hasDBAccess, text: model.hasDBAccess ? "已允许" : "未允许")
+            }
+            CardDivider()
+            CardRow(title: "在 WhatsApp 里发消息", detail: "设备控制和数据访问（旧名「辅助功能」）：只在你按发送时用") {
+                StatusBadge(ok: axOK, text: axOK ? "已允许" : "未允许")
+            }
+            if !axOK {
+                HStack(spacing: 10) {
+                    Button("请求权限") { WhatsAppSender.requestPermission() }.appButton(.primary)
                     Button("打开系统设置") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-                    }
+                    }.appButton()
                 }
             }
         }
-        .font(Theme.body)
         .task {
             while !Task.isCancelled {
                 axOK = WhatsAppSender.hasPermission
@@ -275,73 +266,88 @@ struct VoiceSection: View {
     @State private var testResult: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("语音消息转文字（可选）").font(Theme.label)
-            Text("对方发来语音时，在这台电脑上用 Whisper large-v3 把语音转成文字，再翻译成中文。录音不上传到网上，不花钱。")
-                .font(Theme.body)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("• 需要一个约 2.9 GB 的语音模型，只下载一次。")
-                Text("• 第一次使用时，系统要花 5–10 分钟优化模型（只有这一次），之后打开几秒就好。")
-                Text("• 运行时占用约 3 GB 内存；一条 10 秒的语音大约 2–3 秒转完。")
-                Text("• 不需要的话可以跳过，语音消息就只显示「［语音］」。以后随时可以在设置里开启。")
+        VStack(alignment: .leading, spacing: 18) {
+            Card("语音消息转文字（可选）",
+                 subtitle: "对方发来语音时，在这台电脑上用 Whisper large-v3 转成文字，再翻译成中文。录音不上传，不花钱。") {
+                StatusBadge(ok: model.whisperFolder != nil, text: model.whisperFolder != nil ? "已开启" : "未开启")
+            } content: {
+                VStack(alignment: .leading, spacing: 8) {
+                    bullet("需要一个约 2.9 GB 的语音模型，只下载一次。")
+                    bullet("第一次使用时，系统要花 5–10 分钟优化模型（只有这一次），之后打开几秒就好。")
+                    bullet("运行时占用约 3 GB 内存；一条 10 秒的语音大约 2–3 秒转完。")
+                    bullet("不需要的话可以不开，语音消息只显示「［语音］」。")
+                }
             }
-            .font(Theme.small).foregroundStyle(Theme.inkSoft)
 
-            // 当前状态
-            if let folder = model.whisperFolder {
-                Text("✓ 已开启：\(folder.path)")
-                    .font(Theme.small).foregroundStyle(Theme.accent).textSelection(.enabled)
-                HStack(spacing: 12) {
-                    Button(testing ? "加载中…（第一次可能要几分钟）" : "检查能不能用") { test(folder) }
-                        .disabled(testing)
-                    Button("关闭语音转文字") { model.disableWhisper(); testResult = nil }
-                }
-                .font(Theme.body).controlSize(.large)
-                if let testResult { Text(testResult).font(Theme.small).textSelection(.enabled) }
-            } else {
-                Text("✗ 还没开启").font(Theme.small).foregroundStyle(Theme.warn)
-
-                // 方式一：本机已经有模型
-                if !detected.isEmpty {
-                    Text("在这台电脑上找到了已下载的模型，可以直接用：").font(Theme.small)
-                    ForEach(detected, id: \.self) { url in
-                        HStack {
-                            Text(url.path).font(.system(size: 15 * Theme.scale, design: .monospaced))
-                                .lineLimit(2).textSelection(.enabled)
-                            Spacer()
-                            Button("用这个") { model.useWhisperFolder(url.path) }.font(Theme.body)
-                        }
+            Card("语音模型") {
+                if let folder = model.whisperFolder {
+                    Text(folder.path)
+                        .font(.system(size: 15 * Theme.scale, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.canvas))
+                    HStack(spacing: 10) {
+                        Button(testing ? "加载中…（第一次可能要几分钟）" : "检查能不能用") { test(folder) }
+                            .appButton().disabled(testing)
+                        Button("关闭语音转文字") { model.disableWhisper(); testResult = nil }.appButton(.danger)
                     }
-                }
-
-                // 方式二：下载
-                if let p = model.whisperDownload {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ProgressView(value: p)
-                        HStack {
-                            Text(String(format: "正在下载 %.0f%%（共约 2.9 GB）", p * 100)).font(Theme.small)
-                            Spacer()
-                            Button("取消下载") { model.cancelWhisperDownload() }.font(Theme.small)
-                        }
+                    if let testResult {
+                        Text(testResult).font(Theme.caption)
+                            .foregroundStyle(testResult.hasPrefix("✗") ? Theme.warn : Theme.accent).textSelection(.enabled)
                     }
                 } else {
-                    HStack(spacing: 12) {
-                        Button("下载语音模型（\(WhisperModel.sizeText)）") { model.startWhisperDownload() }
-                            .buttonStyle(.borderedProminent).tint(Theme.accent)
-                        // 方式三：自己指定
-                        Button("我已经下载过，选择文件夹…") { choose() }
+                    // 方式一：本机已经有模型
+                    if !detected.isEmpty {
+                        Text("在这台电脑上找到了已下载的模型，可以直接用：").font(Theme.caption)
+                        ForEach(detected, id: \.self) { url in
+                            HStack(spacing: 10) {
+                                Text(url.path).font(.system(size: 15 * Theme.scale, design: .monospaced))
+                                    .lineLimit(2).textSelection(.enabled)
+                                Spacer()
+                                Button("用这个") { model.useWhisperFolder(url.path) }.appButton(.primary)
+                            }
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.canvas))
+                        }
+                        CardDivider()
                     }
-                    .font(Theme.body).controlSize(.large)
-                    Text("下载到：\(WhisperModel.base.path)（不在 OneDrive 里）。这台电脑还剩 \(WhisperModel.gb(WhisperModel.freeSpace())) 空间。")
-                        .font(Theme.small).foregroundStyle(Theme.inkSoft).textSelection(.enabled)
+
+                    // 方式二：下载
+                    if let p = model.whisperDownload {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ProgressView(value: p).tint(Theme.accent)
+                            HStack {
+                                Text(String(format: "正在下载 %.0f%%（共约 2.9 GB）", p * 100)).font(Theme.caption)
+                                Spacer()
+                                Button("取消下载") { model.cancelWhisperDownload() }.appButton(.danger)
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            Button("下载语音模型（\(WhisperModel.sizeText)）") { model.startWhisperDownload() }
+                                .appButton(.primary)
+                            // 方式三：自己指定
+                            Button("我已经下载过，选择文件夹…") { choose() }.appButton()
+                        }
+                        Text("下载到：\(WhisperModel.base.path)（不在 OneDrive 里）。这台电脑还剩 \(WhisperModel.gb(WhisperModel.freeSpace())) 空间。")
+                            .font(Theme.caption).foregroundStyle(Theme.inkSoft).textSelection(.enabled)
+                    }
                 }
-            }
-            if let m = model.whisperMessage {
-                Text(m).font(Theme.small)
-                    .foregroundStyle(m.hasPrefix("✗") ? Theme.warn : Theme.ink).textSelection(.enabled)
+                if let m = model.whisperMessage {
+                    Text(m).font(Theme.caption)
+                        .foregroundStyle(m.hasPrefix("✗") ? Theme.warn : Theme.ink).textSelection(.enabled)
+                }
             }
         }
         .onAppear { detected = WhisperModel.detectExisting() }
+    }
+
+    private func bullet(_ t: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("•").font(Theme.text).foregroundStyle(Theme.accent)
+            Text(t).font(Theme.caption).foregroundStyle(Theme.inkSoft).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func choose() {
@@ -382,35 +388,40 @@ struct StyleSection: View {
     @State private var message: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("我的说话风格（「建议回复」照着这个写）").font(Theme.label)
-            Text("第一次点「建议回复」时，会把你最近发出的约 200 条消息发给翻译服务，总结出你的说话习惯。总结结果存在这台电脑上，可以直接改。")
-                .font(Theme.small).foregroundStyle(Theme.inkSoft)
-            TextEditor(text: $model.replyStyle)
-                .font(Theme.small)
-                .scrollContentBackground(.hidden)
-                .padding(6)
-                .frame(height: 180)
-                .background(Color.white)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-                .overlay(alignment: .topLeading) {
-                    if model.replyStyle.isEmpty {
-                        Text("（还没有总结）").font(Theme.small).foregroundStyle(Theme.placeholder).padding(12).allowsHitTesting(false)
+        VStack(alignment: .leading, spacing: 18) {
+            Card("我的说话风格", subtitle: "「建议回复」照着这个写。第一次点「建议回复」时，会把你最近发出的约 200 条消息发给翻译服务，总结出你的说话习惯。结果存在这台电脑上，可以直接改。") {
+                TextEditor(text: $model.replyStyle)
+                    .font(Theme.caption)
+                    .scrollContentBackground(.hidden)
+                    .lineSpacing(4)
+                    .padding(8)
+                    .frame(height: 200)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1.5))
+                    .overlay(alignment: .topLeading) {
+                        if model.replyStyle.isEmpty {
+                            Text("（还没有总结）").font(Theme.caption).foregroundStyle(Theme.placeholder).padding(13).allowsHitTesting(false)
+                        }
+                    }
+                HStack(spacing: 12) {
+                    Button(model.styleBusy ? "总结中…" : "根据我发过的消息重新总结") {
+                        message = nil
+                        Task {
+                            do { try await model.summarizeStyle(); message = "✓ 已更新" }
+                            catch { message = "✗ \(error.localizedDescription)" }
+                        }
+                    }
+                    .appButton()
+                    .disabled(model.styleBusy)
+                    if let message {
+                        Text(message).font(Theme.caption)
+                            .foregroundStyle(message.hasPrefix("✗") ? Theme.warn : Theme.accent)
                     }
                 }
-            ShortcutRecorder()
-            HStack(spacing: 12) {
-                Button(model.styleBusy ? "总结中…" : "根据我发过的消息重新总结") {
-                    message = nil
-                    Task {
-                        do { try await model.summarizeStyle(); message = "✓ 已更新" }
-                        catch { message = "✗ \(error.localizedDescription)" }
-                    }
-                }
-                .disabled(model.styleBusy)
-                if let message { Text(message).font(Theme.small) }
             }
-            .font(Theme.body).controlSize(.large)
+            Card("快捷键", subtitle: "在输入栏里按这个组合键，马上起草 3 条回复。") {
+                ShortcutRecorder()
+            }
         }
     }
 }
@@ -428,18 +439,18 @@ struct ShortcutRecorder: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
-                Text("「建议回复」快捷键：").font(Theme.body)
+                Text("当前快捷键").font(Theme.f(18, .semibold))
                 Text(recording ? "请按新的组合键…" : model.suggestShortcutText)
                     .font(Theme.f(19, .bold))
                     .padding(.horizontal, 12).padding(.vertical, 4)
                     .background(RoundedRectangle(cornerRadius: 6).fill(recording ? Theme.mine : Color.white))
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(recording ? Theme.accent : Theme.border, lineWidth: recording ? 2 : 1))
-                Button(recording ? "取消（Esc）" : "修改") { recording ? stop() : start() }
-                Button("恢复默认 ⌘/") { model.suggestKey = "/"; model.suggestMods = 1; message = "✓ 已恢复为 ⌘/" }
+                Spacer()
+                Button(recording ? "取消（Esc）" : "修改") { recording ? stop() : start() }.appButton(.primary)
+                Button("恢复默认 ⌘/") { model.suggestKey = "/"; model.suggestMods = 1; message = "✓ 已恢复为 ⌘/" }.appButton()
             }
-            .font(Theme.body).controlSize(.large)
             if let message {
-                Text(message).font(Theme.small).foregroundStyle(message.hasPrefix("✗") ? Theme.warn : Theme.ink)
+                Text(message).font(Theme.caption).foregroundStyle(message.hasPrefix("✗") ? Theme.warn : Theme.ink)
             }
         }
         .onDisappear { stop() }

@@ -155,8 +155,7 @@ struct ChatView: View {
             Text("⚠ WhatsApp 窗口关着：能正常收消息，发消息时会自动打开它")
                 .font(Theme.small).foregroundStyle(Theme.ink)
             Spacer()
-            Button("打开 WhatsApp 窗口") { WhatsAppSender.launchWhatsApp() }
-                .font(Theme.small)
+            Button("打开 WhatsApp 窗口") { WhatsAppSender.launchWhatsApp() }.appButton()
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(Color(hex: 0xFFF3C4))
@@ -171,7 +170,7 @@ struct ChatView: View {
                 Avatar(name: chat.name, isGroup: chat.isGroup, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(chat.name).font(Theme.title).lineLimit(1)
-                    Text(chat.isGroup ? "群聊" : "单聊 · 发消息翻成\(model.targetLanguage.title)")
+                    Text(chat.isGroup ? "群聊" : "单聊")
                         .font(Theme.small).foregroundStyle(Theme.inkSoft)
                 }
                 Spacer()
@@ -189,18 +188,15 @@ struct ChatView: View {
 
     @ViewBuilder private var messageList: some View {
         if model.composingNew {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("给新号码发消息").font(Theme.title)
-                Text("1. 在上面填对方的手机号（带国家码，例如 +34 600 123 456；西班牙号码可以只写 9 位）。")
-                Text("2. 在下面打中文 → ⌘↩ 翻译 → 核对 → ⌘↩ 发送。")
-                Text("发送时 WhatsApp 会打开和这个号码的聊天并发出消息，然后自动回到这里，左边列表里会出现这个聊天。")
-                Text("如果对方没有用 WhatsApp，WhatsApp 会提示号码无效，消息不会发出。")
+            Card("给新号码发消息", subtitle: "如果对方没有用 WhatsApp，WhatsApp 会提示号码无效，消息不会发出。") {
+                NumberedSteps(steps: [
+                    "在上面填对方的手机号（带国家码，例如 +34 600 123 456；西班牙号码可以只写 9 位）",
+                    "在下面打中文 → ⌘↩ 翻译 → 核对 → ⌘↩ 发送",
+                    "WhatsApp 会打开和这个号码的聊天并发出消息，然后自动回到这里，左边列表里会出现这个聊天",
+                ])
             }
-            .font(Theme.body)
-            .lineSpacing(5)
-            .padding(22)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white))
-            .padding(24)
+            .frame(maxWidth: 640)
+            .padding(28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             existingMessages
@@ -302,10 +298,11 @@ struct ChatView: View {
             Text("翻译：" + (model.engine == .online ? "\(model.provider.title) · \(model.modelName)" : "本机模型"))
                 .foregroundStyle(Theme.inkSoft)
         }
-        .font(Theme.small)
+        .font(Theme.caption)
         .lineLimit(1)
         .padding(.horizontal, 16).padding(.vertical, 7)
         .background(Theme.bar)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1) }
     }
 }
 
@@ -358,18 +355,13 @@ struct ChatSidebar: View {
                 Text("聊天").font(Theme.f(24, .bold))
                 Spacer()
                 Button { model.startNewChat() } label: {
-                    Label("新消息", systemImage: "square.and.pencil")
-                        .font(Theme.f(17, .semibold))
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Capsule().fill(model.composingNew ? Theme.accent : Color.white))
-                        .foregroundStyle(model.composingNew ? Color.white : Theme.accent)
-                        .overlay(Capsule().stroke(Theme.accent, lineWidth: 1.5))
+                    GhostLabel(icon: "square.and.pencil") { Text("新消息") }
+                        .background(RoundedRectangle(cornerRadius: 7).fill(model.composingNew ? Theme.accentBg : .clear))
                 }
                 .buttonStyle(.plain)
                 .help("输入手机号，给新的人发消息")
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(Theme.bar)
+            .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 12)
 
             // 搜索
             HStack(spacing: 8) {
@@ -383,10 +375,10 @@ struct ChatSidebar: View {
             }
             .font(Theme.f(17))
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bar))
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.canvas))
+            .padding(.horizontal, 12).padding(.bottom, 10)
 
-            Rectangle().fill(Theme.border).frame(height: 1)
+            Rectangle().fill(Theme.hairline).frame(height: 1)
 
             ScrollView {
                 LazyVStack(spacing: 0) {
@@ -442,7 +434,7 @@ struct ChatSidebar: View {
                 if selected { Rectangle().fill(Theme.accent).frame(width: 4) }
             }
             .overlay(alignment: .bottom) {
-                Rectangle().fill(Theme.border.opacity(0.6)).frame(height: 1).padding(.leading, 74)
+                Rectangle().fill(Theme.hairline.opacity(0.7)).frame(height: 1).padding(.leading, 74)
             }
             .contentShape(Rectangle())
         }
@@ -581,9 +573,11 @@ struct MessageRow: View {
                 let playing = player.playingID == message.id
                 Button { player.toggle(id: message.id, path: path) } label: {
                     Label(playing ? "停止" : "播放", systemImage: playing ? "stop.fill" : "play.fill")
-                        .font(Theme.f(15, .semibold))
+                        .font(Theme.f(15, .semibold)).foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 10).padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.accentBg))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
             }
         }
     }
@@ -685,98 +679,90 @@ struct ComposeView: View {
 
             // 译文预览：浮在输入栏上方
             if let out = model.outgoingText {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(model.targetLanguage == .zh ? "将发送（可以修改）" : "译文 · \(model.targetLanguage.title)（可以直接修改）")
-                            .font(Theme.f(15, .bold)).foregroundStyle(Theme.accent)
-                        Spacer()
-                        Button("重新翻译") { model.outgoingText = nil; model.translateDraft() }
-                            .disabled(model.composeBusy)
-                        Button { model.outgoingText = nil; model.backTranslation = "" } label: {
-                            Label("不发了  Esc", systemImage: "xmark")
-                        }
-                        .keyboardShortcut(.cancelAction)   // Esc
-                        .disabled(model.composeBusy)
+                ComposePanel(title: model.targetLanguage == .zh ? "将发送（可以修改）" : "译文 · \(model.targetLanguage.title)（可以直接修改）",
+                             icon: "character.bubble") {
+                    Button("重新翻译") { model.outgoingText = nil; model.translateDraft() }
+                        .appButton().disabled(model.composeBusy)
+                    Button { model.outgoingText = nil; model.backTranslation = "" } label: {
+                        Label("不发了  Esc", systemImage: "xmark")
                     }
-                    .font(Theme.small)
+                    .appButton()
+                    .keyboardShortcut(.cancelAction)   // Esc
+                    .disabled(model.composeBusy)
+                } content: {
                     TextEditor(text: Binding(get: { out }, set: { model.outgoingText = $0 }))
                         .font(Theme.body)
                         .scrollContentBackground(.hidden)
+                        .padding(6)
                         .frame(minHeight: 54, maxHeight: 90)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.mine))
                     if !model.backTranslation.isEmpty {
                         Text("意思是：" + model.backTranslation)
-                            .font(Theme.small).foregroundStyle(Theme.inkSoft)
+                            .font(Theme.caption).foregroundStyle(Theme.inkSoft)
                             .textSelection(.enabled)
                     }
                 }
-                .padding(10).padding(.leading, 4)
-                .background(Theme.mine)
-                .overlay(alignment: .leading) { Rectangle().fill(Theme.accent).frame(width: 4) }
-                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
-            // 工具条：发给对方用什么语言 · 建议回复 · 附件 ……（右边）发送状态
-            HStack(spacing: 10) {
-                Menu {
-                    ForEach(TargetLanguage.allCases) { lang in
-                        Button(lang.title) { model.targetLanguage = lang }
-                    }
-                } label: {
-                    PillLabel(icon: "globe", shortcut: nil, trailingChevron: true) {
-                        HStack(spacing: 4) {
-                            Text("翻成").foregroundStyle(Theme.inkSoft)
-                            Text(model.targetLanguage.title).foregroundStyle(Theme.ink)
-                        }
-                    }
-                }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                .help("发给这个聊天时翻成哪种语言（每个聊天单独记住）")
-
-                Button { model.suggestReplies() } label: {
-                    PillLabel(icon: "lightbulb", shortcut: model.suggestBusy ? nil : model.suggestShortcutText) {
-                        Text(model.suggestBusy ? "想回复中…" : "建议回复")
-                    }
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(model.suggestShortcut)
-                .disabled(model.suggestBusy || model.composeBusy)
-                .help("根据对话、按你的说话风格起草 3 条回复（\(model.suggestShortcutText)，可在设置里改）。输入框里先写几个要点，会按要点来写。")
-
-                Button { pickFiles() } label: {
-                    PillLabel(icon: "paperclip", shortcut: nil) { Text("附件") }
-                }
-                .buttonStyle(.plain)
-                .disabled(model.composingNew || model.composeBusy)
-                .help("选文件发送（也可以直接把文件拖进窗口）")
-
-                Spacer(minLength: 12)
-
-                if model.composeError == nil, let s = model.composeStatus {
-                    Text(s).font(Theme.f(16, .semibold)).foregroundStyle(Theme.accent)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-
-            // 输入栏：中文输入框 + 绿色按钮
-            HStack(alignment: .bottom, spacing: 10) {
+            // 输入卡片：上面写中文，下面一行工具（无边框）+ 右下角发送按钮，合成一整块
+            VStack(spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $model.draft)
                         .font(Theme.body)
                         .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 6).padding(.vertical, 8)
+                        .padding(.horizontal, 8).padding(.top, 10)
                     if model.draft.isEmpty {
                         Text("在这里打中文…（回车换行）\n也可以只写要点，再点「建议回复」").font(Theme.body).foregroundStyle(Theme.placeholder)
-                            .padding(.horizontal, 11).padding(.vertical, 8)
+                            .padding(.horizontal, 13).padding(.top, 10)
                             .allowsHitTesting(false)
                     }
                 }
-                .frame(height: max(composeHeight, 76 * Theme.scale))
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                .frame(height: max(composeHeight, 60 * Theme.scale))
 
-                actionButton
+                HStack(spacing: 4) {
+                    Menu {
+                        ForEach(TargetLanguage.allCases) { lang in
+                            Button(lang.title) { model.targetLanguage = lang }
+                        }
+                    } label: {
+                        GhostLabel(icon: "globe", chevron: true) {
+                            Text("翻成 ").foregroundStyle(Theme.inkSoft) + Text(model.targetLanguage.title)
+                        }
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .help("发给这个聊天时翻成哪种语言（每个聊天单独记住）")
+
+                    Button { model.suggestReplies() } label: {
+                        GhostLabel(icon: "lightbulb", hint: model.suggestBusy ? nil : model.suggestShortcutText) {
+                            Text(model.suggestBusy ? "想回复中…" : "建议回复")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(model.suggestShortcut)
+                    .disabled(model.suggestBusy || model.composeBusy)
+                    .help("根据对话、按你的说话风格起草 3 条回复（\(model.suggestShortcutText)，可在设置里改）。输入框里先写几个要点，会按要点来写。")
+
+                    Button { pickFiles() } label: {
+                        GhostLabel(icon: "paperclip") { Text("附件") }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.composingNew || model.composeBusy)
+                    .help("选文件发送（也可以直接把文件拖进窗口）")
+
+                    Spacer(minLength: 10)
+
+                    if model.composeError == nil, let s = model.composeStatus {
+                        Text(s).font(Theme.f(16, .medium)).foregroundStyle(Theme.accent)
+                            .lineLimit(1).truncationMode(.middle)
+                            .padding(.trailing, 6)
+                    }
+                    actionButton
+                }
+                .padding(.horizontal, 8).padding(.vertical, 8)
+                .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1).padding(.horizontal, 10) }
             }
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hairline))
 
             if let e = model.composeError {
                 Text("⚠ " + e).font(Theme.small).foregroundStyle(Theme.warn).textSelection(.enabled)
@@ -787,15 +773,11 @@ struct ComposeView: View {
     }
 
     private var filesPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("要发给「\(model.selectedChat?.name ?? "")」的文件（\(model.pendingFiles.count) 个）")
-                    .font(Theme.f(15, .bold)).foregroundStyle(Theme.accent)
-                Spacer()
-                Button { model.pendingFiles = [] } label: { Label("不发了  Esc", systemImage: "xmark") }
-                    .keyboardShortcut(model.outgoingText == nil ? .cancelAction : nil)
-                    .font(Theme.small)
-            }
+        ComposePanel(title: "要发给「\(model.selectedChat?.name ?? "")」的文件（\(model.pendingFiles.count) 个）", icon: "paperclip") {
+            Button { model.pendingFiles = [] } label: { Label("不发了  Esc", systemImage: "xmark") }
+                .appButton()
+                .keyboardShortcut(model.outgoingText == nil ? .cancelAction : nil)
+        } content: {
             ForEach(model.pendingFiles, id: \.self) { url in
                 HStack(spacing: 10) {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
@@ -807,13 +789,9 @@ struct ComposeView: View {
                         .buttonStyle(.plain).foregroundStyle(Theme.inkSoft).help("去掉这个")
                 }
             }
-            Text("按 ⌘↩ 或右边的「发送」。WhatsApp 会短暂切到前面，发完自动回来。")
-                .font(Theme.small).foregroundStyle(Theme.inkSoft)
+            Text("按 ⌘↩ 或右边的「发文件」。WhatsApp 会短暂切到前面，发完自动回来。")
+                .font(Theme.caption).foregroundStyle(Theme.inkSoft)
         }
-        .padding(10).padding(.leading, 4)
-        .background(Color.white)
-        .overlay(alignment: .leading) { Rectangle().fill(Theme.accent).frame(width: 4) }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     static func sizeText(_ url: URL) -> String {
@@ -831,17 +809,13 @@ struct ComposeView: View {
     }
 
     private var suggestionPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("建议回复（按你的说话风格）· 点一条放进输入框，可以再改")
-                    .font(Theme.f(15, .bold)).foregroundStyle(Theme.accent)
-                Spacer()
-                Button("换一批") { model.suggestReplies() }.disabled(model.suggestBusy)
-                Button { model.suggestions = [] } label: { Label("关闭  Esc", systemImage: "xmark") }
-                    // 译文框或待发文件也开着时，Esc 先给它们
-                    .keyboardShortcut(model.outgoingText == nil && model.pendingFiles.isEmpty ? .cancelAction : nil)
-            }
-            .font(Theme.small)
+        ComposePanel(title: "建议回复 · 点一条放进输入框，可以再改", icon: "lightbulb") {
+            Button("换一批") { model.suggestReplies() }.appButton().disabled(model.suggestBusy)
+            Button { model.suggestions = [] } label: { Label("关闭  Esc", systemImage: "xmark") }
+                .appButton()
+                // 译文框或待发文件也开着时，Esc 先给它们
+                .keyboardShortcut(model.outgoingText == nil && model.pendingFiles.isEmpty ? .cancelAction : nil)
+        } content: {
             ForEach(Array(model.suggestions.enumerated()), id: \.element.id) { i, sug in
                 Button { model.useSuggestion(sug) } label: {
                     VStack(alignment: .leading, spacing: 4) {
@@ -863,8 +837,8 @@ struct ComposeView: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.canvas))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -898,16 +872,16 @@ struct ComposeView: View {
             : (model.composeBusy ? "翻译中…" : (model.targetLanguage == .zh ? "预览" : "翻译"))
         // 不用 .disabled：系统会把按钮调淡，字看不清；能不能按在 performAction 里现场判断
         Button { performAction() } label: {
-            VStack(spacing: 2) {
+            HStack(spacing: 8) {
                 Image(systemName: sending ? "paperplane.fill" : "character.bubble")
-                    .font(Theme.f(20, .semibold))
-                Text(title).font(Theme.f(16, .bold))
-                Text("⌘↩").font(Theme.f(13, .semibold))
+                Text(title)
+                Text("⌘↩").font(Theme.f(14, .semibold)).opacity(disabled ? 1 : 0.85)
             }
+            .font(Theme.f(17, .semibold))
             .foregroundStyle(disabled ? Theme.inkSoft : .white)
-            .frame(width: 76 * Theme.scale, height: 76 * Theme.scale)
-            .background(RoundedRectangle(cornerRadius: 12).fill(disabled ? Color.white : Theme.accent))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(disabled ? Theme.border : Theme.accent))
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(disabled ? Theme.canvas : Theme.accent))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .keyboardShortcut(.return, modifiers: .command)
@@ -971,24 +945,27 @@ struct WhatsAppGate: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("先打开并登录 WhatsApp").font(Theme.f(26, .bold))
-            Text(info.title).font(Theme.f(21, .bold)).foregroundStyle(Theme.warn)
-            Text(info.detail).font(Theme.body).lineSpacing(6)
-            HStack(spacing: 14) {
-                if let b = info.button {
-                    Button(b) { WhatsAppSender.launchWhatsApp() }
-                        .buttonStyle(.borderedProminent).tint(Theme.accent)
+        VStack(alignment: .leading, spacing: 18) {
+            PageHeader(title: "先打开并登录 WhatsApp", subtitle: "autoTrans 贴在 WhatsApp 旁边用，WhatsApp 准备好后这里会自动进入。")
+            Card(String(info.title.dropFirst(2))) {
+                StatusBadge(ok: false, text: "未就绪")
+            } content: {
+                Text(info.detail).font(Theme.text).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                CardDivider()
+                HStack(spacing: 10) {
+                    if let b = info.button {
+                        Button(b) { WhatsAppSender.launchWhatsApp() }.appButton(.primary)
+                    }
+                    Button("重新检查") { model.checkWhatsApp(force: true) }.appButton()
+                    Spacer()
+                    Text("⏳ 每 3 秒自动检查一次").font(Theme.caption).foregroundStyle(Theme.inkSoft)
                 }
-                Button("重新检查") { model.checkWhatsApp(force: true) }
             }
-            .font(Theme.body).controlSize(.large)
-            Text("⏳ 每 3 秒自动检查一次").font(Theme.small).foregroundStyle(Theme.inkSoft)
         }
         .padding(40)
-        .frame(maxWidth: 640)
+        .frame(maxWidth: 680)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.chatBg)
+        .background(Theme.canvas)
     }
 }
 
@@ -1019,36 +996,58 @@ struct DragHandle: View {
     }
 }
 
-/// 输入栏上方工具条的「胶囊」按钮：白底、细边框、绿色图标、深色字；快捷键放在小灰键帽里
-struct PillLabel<Content: View>: View {
+/// 无边框的工具按钮：绿色图标 + 深色字，鼠标移上去才出现浅灰底；快捷键用小字跟在后面
+struct GhostLabel<Content: View>: View {
     let icon: String
-    let shortcut: String?
-    var trailingChevron = false
+    var hint: String? = nil
+    var chevron = false
     @ViewBuilder let content: Content
     @Environment(\.isEnabled) private var enabled
     @State private var hover = false
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 6) {
             Image(systemName: icon).foregroundStyle(Theme.accent)
             content.foregroundStyle(Theme.ink)
-            if let shortcut {
-                Text(shortcut)
-                    .font(Theme.f(14, .semibold)).foregroundStyle(Theme.inkSoft)
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Theme.bar))
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.border))
+            if let hint {
+                Text(hint).font(Theme.f(14, .medium)).foregroundStyle(Theme.inkSoft)
             }
-            if trailingChevron {
-                Image(systemName: "chevron.down").font(Theme.f(12, .bold)).foregroundStyle(Theme.inkSoft)
+            if chevron {
+                Image(systemName: "chevron.down").font(Theme.f(11, .bold)).foregroundStyle(Theme.inkSoft)
             }
         }
         .font(Theme.f(16, .semibold))
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(Capsule().fill(hover && enabled ? Theme.mine : Color.white))
-        .overlay(Capsule().stroke(hover && enabled ? Theme.accent : Theme.border, lineWidth: 1))
-        .opacity(enabled ? 1 : 0.55)
-        .contentShape(Capsule())
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 7).fill(hover && enabled ? Theme.canvas : .clear))
+        .opacity(enabled ? 1 : 0.5)
+        .contentShape(RoundedRectangle(cornerRadius: 7))
         .onHover { hover = $0 }
+    }
+}
+
+/// 输入栏上方浮出的面板（译文、建议回复、待发文件）：白卡片，标题行 + 分割线 + 内容
+struct ComposePanel<Actions: View, Content: View>: View {
+    let title: String
+    let icon: String
+    @ViewBuilder var actions: Actions
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: icon).foregroundStyle(Theme.accent)
+                Text(title).font(Theme.f(17, .bold)).foregroundStyle(Theme.ink).lineLimit(1)
+                Spacer(minLength: 8)
+                actions
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            CardDivider()
+            VStack(alignment: .leading, spacing: 8) { content }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hairline))
+        .shadow(color: .black.opacity(0.06), radius: 3, y: 1)
     }
 }

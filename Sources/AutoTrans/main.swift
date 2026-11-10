@@ -113,24 +113,9 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     do { try MainActor.assumeIsolated { try WhatsAppSender.openChat(named: CommandLine.arguments[2]) }; print("pressed") }
     catch { print("✗", error.localizedDescription) }
     exit(0)
-} else if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--render-compose" {
-    // 把输入栏画成 PNG，看排版用：autoTrans --render-compose out.png [宽度]
-    MainActor.assumeIsolated {
-        _ = NSApplication.shared
-        let model = AppModel()
-        model.composeStatus = "✓ 已发送给「张三」"
-        let w = Double(CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "") ?? 1100
-        let host = NSHostingView(rootView: ComposeView().environmentObject(model).frame(width: w))
-        host.frame = NSRect(x: 0, y: 0, width: w, height: 200)
-        host.layoutSubtreeIfNeeded()
-        host.frame.size.height = host.fittingSize.height
-        host.layoutSubtreeIfNeeded()
-        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-            host.cacheDisplay(in: host.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
-            print("ok")
-        }
-    }
+} else if CommandLine.arguments.count > 3, CommandLine.arguments[1] == "--render" {
+    // 用假数据把界面画成 PNG，看排版用：autoTrans --render main|settings|wizard0…5|compose out.png
+    MainActor.assumeIsolated { renderPreview(CommandLine.arguments[2], to: CommandLine.arguments[3]) }
     exit(0)
 } else if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--ax-buttons" {
     MainActor.assumeIsolated { WhatsAppSender.dumpButtons() }
