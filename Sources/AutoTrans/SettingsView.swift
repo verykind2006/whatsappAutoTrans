@@ -12,6 +12,8 @@ struct SettingsView: View {
                 Divider()
                 EngineSection()
                 Divider()
+                StyleSection()
+                Divider()
                 VoiceSection()
             }
             .padding(28)
@@ -370,5 +372,108 @@ struct VoiceSection: View {
             }
             testing = false
         }
+    }
+}
+
+// MARK: - 我的说话风格（建议回复用）
+
+struct StyleSection: View {
+    @EnvironmentObject var model: AppModel
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("我的说话风格（「建议回复」照着这个写）").font(Theme.label)
+            Text("第一次点「建议回复」时，会把你最近发出的约 200 条消息发给翻译服务，总结出你的说话习惯。总结结果存在这台电脑上，可以直接改。")
+                .font(Theme.small).foregroundStyle(Theme.inkSoft)
+            TextEditor(text: $model.replyStyle)
+                .font(Theme.small)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .frame(height: 180)
+                .background(Color.white)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
+                .overlay(alignment: .topLeading) {
+                    if model.replyStyle.isEmpty {
+                        Text("（还没有总结）").font(Theme.small).foregroundStyle(Theme.placeholder).padding(12).allowsHitTesting(false)
+                    }
+                }
+            ShortcutRecorder()
+            HStack(spacing: 12) {
+                Button(model.styleBusy ? "总结中…" : "根据我发过的消息重新总结") {
+                    message = nil
+                    Task {
+                        do { try await model.summarizeStyle(); message = "✓ 已更新" }
+                        catch { message = "✗ \(error.localizedDescription)" }
+                    }
+                }
+                .disabled(model.styleBusy)
+                if let message { Text(message).font(Theme.small) }
+            }
+            .font(Theme.body).controlSize(.large)
+        }
+    }
+}
+
+/// 改「建议回复」的快捷键：点「修改」，再按新的组合键
+struct ShortcutRecorder: View {
+    @EnvironmentObject var model: AppModel
+    @State private var recording = false
+    @State private var monitor: Any?
+    @State private var message: String?
+
+    // 只带 ⌘ 时不能用的键：系统和 autoTrans 自己在用
+    private static let reservedCmd: Set<Character> = ["q", "w", "h", "m", "c", "v", "x", "a", "z", ",", "=", "-", "0", "+", "n", "o", "p", "s", "f"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Text("「建议回复」快捷键：").font(Theme.body)
+                Text(recording ? "请按新的组合键…" : model.suggestShortcutText)
+                    .font(Theme.f(19, .bold))
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(recording ? Theme.mine : Color.white))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(recording ? Theme.accent : Theme.border, lineWidth: recording ? 2 : 1))
+                Button(recording ? "取消（Esc）" : "修改") { recording ? stop() : start() }
+                Button("恢复默认 ⌘/") { model.suggestKey = "/"; model.suggestMods = 1; message = "✓ 已恢复为 ⌘/" }
+            }
+            .font(Theme.body).controlSize(.large)
+            if let message {
+                Text(message).font(Theme.small).foregroundStyle(message.hasPrefix("✗") ? Theme.warn : Theme.ink)
+            }
+        }
+        .onDisappear { stop() }
+    }
+
+    private func start() {
+        message = "按下想用的组合键，必须带 ⌘ 或 ⌃（比如 ⌘/、⌘J、⌃⇧R）。按 Esc 取消。"
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            if e.keyCode == 53 { stop(); message = nil; return nil }   // Esc
+            let f = e.modifierFlags.intersection([.command, .shift, .option, .control])
+            guard f.contains(.command) || f.contains(.control) else {
+                message = "✗ 要带 ⌘ 或 ⌃，不然打字时会误触"; return nil
+            }
+            // 不带修饰键时的那个字符（⇧/ 也记成 /）
+            guard let raw = e.characters(byApplyingModifiers: [])?.lowercased(), let ch = raw.first,
+                  raw.count == 1, ch.isASCII, !ch.isWhitespace, ch.unicodeScalars.first!.value >= 33 else {
+                message = "✗ 请用字母、数字或符号键"; return nil
+            }
+            if f == .command && Self.reservedCmd.contains(ch) {
+                message = "✗ ⌘\(String(ch).uppercased()) 已经被系统或 autoTrans 占用了，换一个"; return nil
+            }
+            model.suggestKey = String(ch)
+            model.suggestMods = (f.contains(.command) ? 1 : 0) | (f.contains(.shift) ? 2 : 0)
+                | (f.contains(.option) ? 4 : 0) | (f.contains(.control) ? 8 : 0)
+            message = "✓ 已改为 \(model.suggestShortcutText)"
+            stop()
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        recording = false
     }
 }

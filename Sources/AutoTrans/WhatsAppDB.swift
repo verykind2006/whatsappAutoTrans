@@ -137,6 +137,18 @@ final class WhatsAppDB {
         }
     }
 
+    /// 某聊天里编号大于 afterID 的「我发的」图片/视频/语音/文件条数（确认文件发出去了）
+    func outgoingMediaCount(chatID: Int, after afterID: Int) throws -> Int {
+        try withDB { db in
+            var n = 0
+            try query(db, """
+                select count(*) from ZWAMESSAGE
+                where ZCHATSESSION = ? and ZISFROMME = 1 and Z_PK > ? and ZMESSAGETYPE in (1, 2, 3, 8, 15)
+                """, [chatID, afterID]) { n = Int(sqlite3_column_int64($0, 0)) }
+            return n
+        }
+    }
+
     /// 所有聊天里编号大于 afterID 的「我发的」文字消息（新建聊天发送后，用来找它落在哪个聊天）
     func outgoingTextsAnyChat(after afterID: Int) throws -> [(id: Int, chatID: Int, text: String)] {
         try withDB { db in
@@ -147,6 +159,19 @@ final class WhatsAppDB {
                 """, [afterID]) { s in
                 out.append((Int(sqlite3_column_int64(s, 0)), Int(sqlite3_column_int64(s, 1)), Self.str(s, 2) ?? ""))
             }
+            return out
+        }
+    }
+
+    /// 我最近发出的文字消息（所有聊天，最新在前），用来总结说话风格
+    func recentOutgoingTexts(limit: Int = 200) throws -> [(id: Int, text: String)] {
+        try withDB { db in
+            var out: [(id: Int, text: String)] = []
+            try query(db, """
+                select Z_PK, ZTEXT from ZWAMESSAGE
+                where ZISFROMME = 1 and ZMESSAGETYPE = 0 and ZTEXT is not null and length(ZTEXT) > 1
+                order by Z_PK desc limit ?
+                """, [limit]) { s in out.append((Int(sqlite3_column_int64(s, 0)), Self.str(s, 1) ?? "")) }
             return out
         }
     }
@@ -163,15 +188,18 @@ final class WhatsAppDB {
         }
     }
 
-    /// 每个聊天的最后一条消息（左侧列表第二行预览用）
+    /// 每个聊天的最后一条消息（左侧列表第二行预览用）——按时间最晚，不是编号最大
     func lastMessages() throws -> [Int: Message] {
         try withDB { db in
             var out: [Int: Message] = [:]
             try query(db, """
                 select m.Z_PK, m.ZCHATSESSION, m.ZISFROMME, m.ZMESSAGEDATE, m.ZMESSAGETYPE, m.ZTEXT
                 from ZWAMESSAGE m
-                join (select max(Z_PK) as pk from ZWAMESSAGE where ZMESSAGETYPE not in (6, 10)
-                      group by ZCHATSESSION) last on last.pk = m.Z_PK
+                join (select pk from (
+                        select Z_PK as pk, row_number() over (
+                            partition by ZCHATSESSION order by ZMESSAGEDATE desc, Z_PK desc) as rn
+                        from ZWAMESSAGE where ZMESSAGETYPE not in (6, 10))
+                      where rn = 1) last on last.pk = m.Z_PK
                 """) { s in
                 let chat = Int(sqlite3_column_int64(s, 1))
                 let kind: Message.Kind
@@ -213,7 +241,8 @@ final class WhatsAppDB {
         }
     }
 
-    /// 某个聊天最近 limit 条消息（按时间正序返回）
+    /// 某个聊天最近 limit 条消息（按时间正序返回）。
+    /// 注意：Z_PK 不等于时间顺序——手机同步历史记录时，旧消息会后写进来、拿到更大的编号，所以按 ZMESSAGEDATE 排
     func messages(chatID: Int, limit: Int = 40) throws -> [Message] {
         try withDB { db in
             var out: [Message] = []
@@ -226,7 +255,7 @@ final class WhatsAppDB {
                 left join ZWAGROUPMEMBER g on g.Z_PK = m.ZGROUPMEMBER
                 left join ZWAPROFILEPUSHNAME p on p.ZJID = g.ZMEMBERJID
                 where m.ZCHATSESSION = ? and m.ZMESSAGETYPE not in (6, 10)
-                order by m.Z_PK desc limit ?
+                order by m.ZMESSAGEDATE desc, m.Z_PK desc limit ?
                 """, [chatID, limit]) { s in
                 let type = Int(sqlite3_column_int64(s, 3))
                 let kind: Message.Kind

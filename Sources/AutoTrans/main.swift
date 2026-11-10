@@ -113,6 +113,28 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     do { try MainActor.assumeIsolated { try WhatsAppSender.openChat(named: CommandLine.arguments[2]) }; print("pressed") }
     catch { print("✗", error.localizedDescription) }
     exit(0)
+} else if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--render-compose" {
+    // 把输入栏画成 PNG，看排版用：autoTrans --render-compose out.png [宽度]
+    MainActor.assumeIsolated {
+        _ = NSApplication.shared
+        let model = AppModel()
+        model.composeStatus = "✓ 已发送给「张三」"
+        let w = Double(CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "") ?? 1100
+        let host = NSHostingView(rootView: ComposeView().environmentObject(model).frame(width: w))
+        host.frame = NSRect(x: 0, y: 0, width: w, height: 200)
+        host.layoutSubtreeIfNeeded()
+        host.frame.size.height = host.fittingSize.height
+        host.layoutSubtreeIfNeeded()
+        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+            print("ok")
+        }
+    }
+    exit(0)
+} else if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--ax-buttons" {
+    MainActor.assumeIsolated { WhatsAppSender.dumpButtons() }
+    exit(0)
 } else if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--ax-dump" {
     WhatsAppSender.dump()
     exit(0)
@@ -120,6 +142,32 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     let sema = DispatchSemaphore(value: 0)
     var code: Int32 = 0
     Task { code = await runOutgoingSelfTest(CommandLine.arguments); sema.signal() }
+    sema.wait()
+    exit(code)
+} else if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--selftest-suggest" {
+    // autoTrans --selftest-suggest ["要点"]：用一段编的对话试一次「建议回复」（会调一次 API）
+    let sema = DispatchSemaphore(value: 0)
+    var code: Int32 = 0
+    Task {
+        guard let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? KeyStore.readKey(account: "anthropic-api-key") else {
+            print("✗ 没有 Anthropic key"); code = 1; sema.signal(); return
+        }
+        let cfg = OnlineConfig(provider: .anthropic, baseURL: OnlineProvider.anthropic.defaultBaseURL, apiKey: key, model: "claude-opus-5-5")
+        let lines = [
+            OnlineTranslator.Line(id: 1, speaker: "Ana", text: "Hola! Vi vuestro anuncio de las bolsas de cuero. ¿Tenéis la marrón grande?"),
+            OnlineTranslator.Line(id: 2, speaker: "我", text: "Hola Ana! Sí, nos queda alguna 😊"),
+            OnlineTranslator.Line(id: 3, speaker: "Ana", text: "Genial. ¿Cuánto cuesta y podéis enviarla a Valencia esta semana?"),
+        ]
+        let hint = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : ""
+        let t0 = Date()
+        do {
+            let list = try await OnlineTranslator.suggestReplies(cfg, chatName: "Ana", isGroup: false, transcript: lines,
+                                                                 style: "", hint: hint, to: .es)
+            print(String(format: "用时 %.1f 秒", Date().timeIntervalSince(t0)))
+            for (i, x) in list.enumerated() { print("\(i + 1). [\(x.note)] \(x.chinese)\n   → \(x.reply)") }
+        } catch { print("✗ \(error.localizedDescription)"); code = 1 }
+        sema.signal()
+    }
     sema.wait()
     exit(code)
 } else if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--selftest-voice" {

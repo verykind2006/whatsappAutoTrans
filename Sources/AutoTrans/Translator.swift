@@ -328,6 +328,9 @@ enum OnlineTranslator {
 
     // MARK: 底层
 
+    static func requestFor(_ cfg: OnlineConfig, path: String) -> URLRequest { request(cfg, path: path, method: "POST") }
+    static func sendFor(_ req: URLRequest) async throws -> [String: Any] { try await send(req) }
+
     private static func request(_ cfg: OnlineConfig, path: String, method: String) -> URLRequest {
         let base = cfg.baseURL.hasSuffix("/") ? String(cfg.baseURL.dropLast()) : cfg.baseURL
         var req = URLRequest(url: URL(string: base + path) ?? URL(string: "https://invalid.invalid")!)
@@ -408,5 +411,145 @@ final class TranslationCache {
         items.merge(new) { _, b in b }
         let dict = Dictionary(uniqueKeysWithValues: items.map { (String($0.key), $0.value) })
         if let data = try? JSONEncoder().encode(dict) { try? data.write(to: url, options: .atomic) }
+    }
+}
+
+// MARK: - 建议回复 + 说话风格
+
+struct ReplySuggestion: Identifiable, Hashable {
+    let id = UUID()
+    let chinese: String     // 中文意思（给用户看、可改）
+    let reply: String       // 要发出去的那种语言
+    let note: String        // 这条的思路，几个字
+}
+
+extension OnlineTranslator {
+    /// 通用：发一次请求，拿回一个 JSON 对象（Anthropic 用结构化输出，其他家靠提示词 + 宽松解析）
+    static func callJSON(_ cfg: OnlineConfig, system: String, user: String,
+                         schema: [String: Any], example: String, effort: String = "low") async throws -> [String: Any] {
+        let text: String
+        if cfg.provider.isAnthropic {
+            let body: [String: Any] = [
+                "model": cfg.model,
+                "max_tokens": 16000,
+                "output_config": ["effort": effort, "format": ["type": "json_schema", "schema": schema]],
+                "fallbacks": "default",
+                "system": system,
+                "messages": [["role": "user", "content": user]],
+            ]
+            var req = requestFor(cfg, path: "/messages")
+            req.setValue("server-side-fallback-2026-07-01", forHTTPHeaderField: "anthropic-beta")
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let json = try await sendFor(req)
+            if (json["stop_reason"] as? String) == "refusal" { throw TranslateError.refused }
+            text = (json["content"] as? [[String: Any]] ?? [])
+                .filter { ($0["type"] as? String) == "text" }
+                .compactMap { $0["text"] as? String }.joined()
+        } else {
+            let body: [String: Any] = [
+                "model": cfg.model,
+                "messages": [
+                    ["role": "system", "content": system + "\n\n输出格式：只输出一个 JSON 对象，不要任何别的文字，不要代码块标记，形如：\n" + example],
+                    ["role": "user", "content": user],
+                ],
+            ]
+            var req = requestFor(cfg, path: "/chat/completions")
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let json = try await sendFor(req)
+            guard let msg = (json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any],
+                  let content = msg["content"] as? String else {
+                throw TranslateError.badResponse("没有 choices[0].message.content")
+            }
+            text = content
+        }
+        guard let s = text.firstIndex(of: "{"), let e = text.lastIndex(of: "}"),
+              let obj = try? JSONSerialization.jsonObject(with: Data(String(text[s...e]).utf8)) as? [String: Any] else {
+            throw TranslateError.badResponse(String(text.prefix(200)))
+        }
+        return obj
+    }
+
+    /// 根据对话起草 3 条回复，用用户自己的口气
+    static func suggestReplies(_ cfg: OnlineConfig, chatName: String, isGroup: Bool, transcript: [Line],
+                               style: String, hint: String, to lang: TargetLanguage) async throws -> [ReplySuggestion] {
+        let langLine = lang == .zh
+            ? "回复用中文写，reply 和 chinese 填同样的内容。"
+            : "reply 用\(lang.promptName)写\(lang == .es ? "（西班牙本地说法，不用拉美说法）" : "")，chinese 是它的中文意思（逐句对应，方便不懂外语的人核对）。"
+        let system = """
+        你是一位 WhatsApp 用户的回复助手。根据对话，以「我」（用户本人）的身份，起草「我」接下来要发的一条回复。
+        要求：
+        - 严格按照下面「我的说话风格」来写：称呼、客气程度、长短、常用说法、表情符号习惯都要像本人。
+        - 接住对方最后说的话；对方问的问题要回答。不知道的事实（价格、库存、时间、地址等）不要编，用「[待确认：…]」标出来让用户自己填。
+        - 给 3 条思路不同的回复（例如：简短确认 / 详细回答 / 追问或推进），每条附几个字的思路说明 note（中文）。
+        - 如果用户给了「要点」，3 条都必须表达这些要点，只是写法不同。
+        - \(langLine)
+        - 只写回复本身，不要加引号或解释。
+        """
+        let recent = transcript.suffix(30).map { "\($0.speaker)：\($0.text)" }.joined(separator: "\n")
+        let user = """
+        聊天对象：\(chatName)\(isGroup ? "（群聊）" : "")
+
+        <我的说话风格>
+        \(style.isEmpty ? "（还没有总结，按礼貌、亲切、简洁的口气写）" : style)
+        </我的说话风格>
+
+        <最近的对话>
+        \(recent.isEmpty ? "（还没有聊过，这是第一条消息）" : recent)
+        </最近的对话>
+
+        <我想说的要点>
+        \(hint.isEmpty ? "（没有给要点，你根据对话判断该怎么回）" : hint)
+        </我想说的要点>
+        """
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": ["suggestions": [
+                "type": "array",
+                "items": [
+                    "type": "object",
+                    "properties": ["note": ["type": "string"], "chinese": ["type": "string"], "reply": ["type": "string"]],
+                    "required": ["note", "chinese", "reply"],
+                    "additionalProperties": false,
+                ],
+            ]],
+            "required": ["suggestions"],
+            "additionalProperties": false,
+        ]
+        let obj = try await callJSON(cfg, system: system, user: user, schema: schema,
+                                     example: #"{"suggestions":[{"note":"简短确认","chinese":"好的，周三见","reply":"Vale, nos vemos el miércoles"}]}"#,
+                                     effort: "medium")
+        let items = (obj["suggestions"] as? [[String: Any]] ?? []).compactMap { d -> ReplySuggestion? in
+            guard let reply = (d["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !reply.isEmpty else { return nil }
+            let zh = (d["chinese"] as? String ?? reply).trimmingCharacters(in: .whitespacesAndNewlines)
+            return ReplySuggestion(chinese: lang == .zh ? reply : zh, reply: reply,
+                                   note: (d["note"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        guard !items.isEmpty else { throw TranslateError.badResponse("没有给出建议") }
+        return items
+    }
+
+    /// 从用户发过的消息里总结说话风格
+    static func summarizeStyle(_ cfg: OnlineConfig, samples: [String]) async throws -> String {
+        let system = """
+        下面是一位 WhatsApp 用户自己发出去的消息（可能有中文、西班牙语、英语）。请总结这个人的说话风格，供以后替他/她代写回复时模仿。
+        用中文分条写，300 字以内，包括：
+        - 称呼和问候、结尾的习惯
+        - 语气和客气程度（对客户 / 对熟人如果明显不同，分开说）
+        - 句子长短、是否爱分几条发
+        - 常用词、口头禅（各语言分别举例，直接引用原话片段）
+        - 表情符号的使用习惯
+        不要写具体的人名、电话、地址、价格等隐私或业务细节。
+        """
+        let user = samples.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        let schema: [String: Any] = [
+            "type": "object", "properties": ["style": ["type": "string"]],
+            "required": ["style"], "additionalProperties": false,
+        ]
+        let obj = try await callJSON(cfg, system: system, user: user, schema: schema,
+                                     example: #"{"style":"- 称呼：……"}"#)
+        guard let s = (obj["style"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
+            throw TranslateError.badResponse("没有总结出来")
+        }
+        return s
     }
 }

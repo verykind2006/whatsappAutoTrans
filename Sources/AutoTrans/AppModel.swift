@@ -250,7 +250,11 @@ final class AppModel: ObservableObject {
             }
             guard let raw = try? db.messages(chatID: chatID, limit: 20) else { continue }
             let recent = withTranscripts(raw)
-            let newOnes = recent.filter { ids.contains($0.id) }
+            // 手机同步历史记录时旧消息也会拿到新编号：只提醒最近 10 分钟内的
+            let cutoff = Date().addingTimeInterval(-600)
+            let stale = recent.filter { ids.contains($0.id) && $0.date < cutoff }.map(\.id)
+            notified.formUnion(stale)
+            let newOnes = recent.filter { ids.contains($0.id) && $0.date >= cutoff }
             notified.formUnion(ids.subtracting(newOnes.map(\.id)))   // 一下子来太多、不在最近 20 条里的，不提醒
 
             // 还没翻译的外语消息：当前打开的聊天交给 translateMissing，其他聊天在后台翻
@@ -616,7 +620,101 @@ final class AppModel: ObservableObject {
         return selectedChat?.name ?? ""
     }
 
+    // MARK: 建议回复
+
+    /// 用户的说话风格（从发过的消息总结，可在设置里改）
+    @Published var replyStyle: String = UserDefaults.standard.string(forKey: "replyStyle") ?? "" {
+        didSet { UserDefaults.standard.set(replyStyle, forKey: "replyStyle") }
+    }
+    /// 建议回复的快捷键（默认 ⌘/，设置里可改）。mods：1=⌘ 2=⇧ 4=⌥ 8=⌃
+    @Published var suggestKey: String = UserDefaults.standard.string(forKey: "suggestKey") ?? "/" {
+        didSet { UserDefaults.standard.set(suggestKey, forKey: "suggestKey") }
+    }
+    @Published var suggestMods: Int = UserDefaults.standard.object(forKey: "suggestMods") as? Int ?? 1 {
+        didSet { UserDefaults.standard.set(suggestMods, forKey: "suggestMods") }
+    }
+    var suggestShortcut: KeyboardShortcut {
+        var m: EventModifiers = []
+        if suggestMods & 1 != 0 { m.insert(.command) }
+        if suggestMods & 2 != 0 { m.insert(.shift) }
+        if suggestMods & 4 != 0 { m.insert(.option) }
+        if suggestMods & 8 != 0 { m.insert(.control) }
+        return KeyboardShortcut(KeyEquivalent(suggestKey.first ?? "/"), modifiers: m)
+    }
+    /// 显示用，如「⌘/」「⌃⇧S」（按苹果习惯的顺序）
+    var suggestShortcutText: String {
+        (suggestMods & 8 != 0 ? "⌃" : "") + (suggestMods & 4 != 0 ? "⌥" : "")
+            + (suggestMods & 2 != 0 ? "⇧" : "") + (suggestMods & 1 != 0 ? "⌘" : "") + suggestKey.uppercased()
+    }
+    @Published var suggestions: [ReplySuggestion] = []
+    @Published var suggestBusy = false
+    @Published var styleBusy = false
+
+    /// 从最近发出的消息总结说话风格。经 autoTrans 发的用中文原文（那才是本人的话）
+    func summarizeStyle() async throws {
+        guard let cfg = onlineConfig() else { throw TranslateError.notConfigured(configProblem ?? "翻译设置不完整") }
+        let rows = try db.recentOutgoingTexts(limit: 200)
+        let samples = rows.map { sentRecords[$0.id]?.chinese ?? $0.text }
+            .map { $0.count > 300 ? String($0.prefix(300)) + "…" : $0 }
+        guard samples.count >= 5 else { throw TranslateError.notConfigured("发出去的消息太少（不到 5 条），还总结不出风格") }
+        styleBusy = true
+        defer { styleBusy = false }
+        replyStyle = try await OnlineTranslator.summarizeStyle(cfg, samples: samples)
+    }
+
+    /// 根据对话起草 3 条回复；输入框里写的中文当作「要点」
+    func suggestReplies() {
+        guard !suggestBusy, composingNew || selectedChat != nil else { return }
+        guard engine == .online else { composeError = "建议回复需要联网模型（菜单 autoTrans → 设置… 里选「联网模型」）"; return }
+        guard let cfg = onlineConfig() else { composeError = "不能生成建议：\(configProblem ?? "翻译设置不完整")（菜单 autoTrans → 设置…）"; return }
+        let chat = selectedChat ?? Chat(id: -1, name: recipientLabel, isGroup: false, lastDate: Date())
+        let hint = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lang = targetLanguage
+        let transcript = composingNew ? [] : messages.filter { !$0.text.isEmpty }.map { m -> OnlineTranslator.Line in
+            var t = m.text
+            if let zh = translations[m.id] { t += "（中文意思：\(zh)）" }
+            if let sent = sentRecords[m.id] { t = sent.chinese + "（实际发出：\(m.text)）" }
+            return OnlineTranslator.Line(id: m.id, speaker: speakerName(m, in: chat), text: t)
+        }
+        composeError = nil
+        suggestions = []
+        suggestBusy = true
+        let chatID = selectedChatID
+        Task {
+            defer { suggestBusy = false }
+            do {
+                if replyStyle.isEmpty {
+                    composeStatus = "第一次用：正在从你发过的消息里总结说话风格…"
+                    try? await summarizeStyle()     // 总结不出来也照样给建议
+                }
+                composeStatus = "正在想回复…"
+                let list = try await OnlineTranslator.suggestReplies(cfg, chatName: chat.name, isGroup: chat.isGroup,
+                                                                    transcript: transcript, style: replyStyle,
+                                                                    hint: hint, to: lang)
+                guard selectedChatID == chatID else { composeStatus = nil; return }   // 中途换了聊天
+                suggestions = list
+                composeStatus = nil
+            } catch {
+                composeStatus = nil
+                composeError = "生成建议失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 选中一条建议：中文放进输入框，外语放进译文框，可以再改
+    func useSuggestion(_ s: ReplySuggestion) {
+        draft = s.chinese
+        if targetLanguage == .zh {
+            outgoingText = s.chinese; backTranslation = ""
+        } else {
+            outgoingText = s.reply; backTranslation = s.chinese
+        }
+        suggestions = []
+    }
+
     func resetCompose() {
+        suggestions = []
+        pendingFiles = []
         outgoingText = nil; backTranslation = ""; composeStatus = nil; composeError = nil
     }
 
@@ -660,6 +758,11 @@ final class AppModel: ObservableObject {
 
     /// 第二步：发到 WhatsApp 里当前选中的聊天，并到数据库里确认真的发出去了
     func sendOutgoing() {
+        // 建议回复里没填的「[待确认：…]」不能发出去
+        if let t = outgoingText, t.contains("[待确认") || t.contains("［待确认") {
+            composeError = "译文里还有「[待确认：…]」没填，请先改成具体内容再发送"
+            return
+        }
         if composingNew { sendToNewNumber(); return }
         guard let text = outgoingText?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
               !composeBusy, let chat = selectedChat else { return }
@@ -695,6 +798,65 @@ final class AppModel: ObservableObject {
                 } else {
                     composeStatus = nil
                     composeError = "没看到发出去的记录，请到 WhatsApp 里看一下这条消息是否已发出"
+                }
+            } catch {
+                composeStatus = nil
+                composeError = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: 发文件（拖进窗口，或点「附件」选）
+
+    @Published var pendingFiles: [URL] = []
+
+    func addFiles(_ urls: [URL]) {
+        guard selectedChat != nil, !composingNew else {
+            composeError = "发文件要先在左边选一个聊天（新号码请先发一条文字消息）"
+            return
+        }
+        var ok: [URL] = []
+        for u in urls where !pendingFiles.contains(u) {
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir), !isDir.boolValue else {
+                composeError = "「\(u.lastPathComponent)」是文件夹，不能直接发，请先压缩成 zip"; continue
+            }
+            let size = (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            if size > 2_000_000_000 { composeError = "「\(u.lastPathComponent)」超过 2 GB，WhatsApp 发不了"; continue }
+            ok.append(u)
+        }
+        pendingFiles += ok
+        if !ok.isEmpty { composeError = nil }
+    }
+
+    func sendFiles() {
+        guard !pendingFiles.isEmpty, !composeBusy, let chat = selectedChat else { return }
+        let files = pendingFiles
+        composeError = nil
+        composeBusy = true
+        composeStatus = "正在把 \(files.count) 个文件发到 WhatsApp…"
+        let before = (try? db.maxMessageID()) ?? 0
+        Task {
+            defer { composeBusy = false }
+            do {
+                do { try await WhatsAppSender.sendFiles(files, toChatNamed: chat.name) }
+                catch { WhatsAppSender.bringAutoTransToFront(); throw error }
+                WhatsAppSender.bringAutoTransToFront()
+                pendingFiles = []
+                composeStatus = "已提交给 WhatsApp，正在确认…"
+                // 大文件上传要一会儿，但记录会先写进数据库；最多等 20 秒
+                var n = 0
+                for _ in 0..<40 {
+                    try await Task.sleep(for: .milliseconds(500))
+                    n = (try? db.outgoingMediaCount(chatID: chat.id, after: before)) ?? 0
+                    if n >= files.count { break }
+                }
+                if n > 0 {
+                    composeStatus = "✓ 已发送 \(n) 个文件给「\(chat.name)」" + (n < files.count ? "（还有 \(files.count - n) 个没看到记录，请到 WhatsApp 确认）" : "")
+                    lastMaxID = -1; poll()
+                } else {
+                    composeStatus = nil
+                    composeError = "没看到发出去的记录，请到 WhatsApp 里看一下文件是否已发出"
                 }
             } catch {
                 composeStatus = nil

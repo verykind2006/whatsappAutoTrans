@@ -14,7 +14,7 @@ enum WhatsAppSender {
 
     enum SendError: Error, LocalizedError {
         case notRunning, noPermission, noWindow, chatNotFound(String), wrongChat(String, String)
-        case noInput, draftNotEmpty, couldNotSend, phoneNotOpened
+        case noInput, draftNotEmpty, couldNotSend, phoneNotOpened, pasteFailed, filePreviewNoSend
         var errorDescription: String? {
             switch self {
             case .notRunning: return "WhatsApp 没有打开，请先打开 WhatsApp"
@@ -24,6 +24,8 @@ enum WhatsAppSender {
             case .wrongChat(let want, let got): return "WhatsApp 打开的是「\(got)」，不是「\(want)」，为防止发错人，没有发送"
             case .noInput: return "没找到 WhatsApp 的输入框，没有发送"
             case .draftNotEmpty: return "WhatsApp 里这个聊天的输入框已经有没发出去的文字。为了不覆盖它，没有发送，请先清空"
+            case .pasteFailed: return "WhatsApp 没有把它当成文件（粘贴成了文字），已清掉，没有发送"
+            case .filePreviewNoSend: return "文件已放进 WhatsApp，但没找到发送按钮。请切到 WhatsApp 看一下，手动点发送或取消"
             case .phoneNotOpened: return "WhatsApp 没有打开和这个号码的聊天。请检查号码；如果 WhatsApp 提示「号码不在 WhatsApp 上」，说明对方没用 WhatsApp"
             case .couldNotSend: return "已把译文填进 WhatsApp 的输入框，但没能自动发出。请切到 WhatsApp 按回车"
             }
@@ -42,9 +44,9 @@ enum WhatsAppSender {
 
     // MARK: 发送
 
-    /// 把 text 发到名为 chatName 的聊天。返回前已核对过聊天名。
+    /// 打开名为 chatName 的聊天并核对右侧确实是它；返回输入框
     @MainActor
-    static func send(_ text: String, toChatNamed chatName: String) async throws {
+    private static func openVerified(_ chatName: String) async throws -> (app: NSRunningApplication, window: AXUIElement, input: AXUIElement) {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
             throw SendError.notRunning
         }
@@ -82,8 +84,16 @@ enum WhatsAppSender {
             throw SendError.wrongChat(chatName, currentTitleForDisplay(window))
         }
 
-        // 3. 填输入框（已有草稿就不动，免得覆盖用户自己打的字）
         guard let input = findAll(window, where: { role($0) == kAXTextAreaRole }).first else { throw SendError.noInput }
+        return (app, window, input)
+    }
+
+    /// 把 text 发到名为 chatName 的聊天。发之前已核对过聊天名。
+    @MainActor
+    static func send(_ text: String, toChatNamed chatName: String) async throws {
+        let (app, window, input) = try await openVerified(chatName)
+
+        // 3. 填输入框（已有草稿就不动，免得覆盖用户自己打的字）
         let existing = (attr(input, kAXValueAttribute) as? String) ?? ""
         guard existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw SendError.draftNotEmpty }
         AXUIElementSetAttributeValue(input, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -92,6 +102,99 @@ enum WhatsAppSender {
 
         // 4. 点「发送」
         try await pressSend(app: app, window: window, input: input)
+    }
+
+    /// 发文件：核对聊天 → 文件放进剪贴板 → 在 WhatsApp 输入框粘贴（⌘V）→ 出现预览后点「发送」。
+    /// 发完把用户原来剪贴板里的东西放回去。
+    @MainActor
+    static func sendFiles(_ urls: [URL], toChatNamed chatName: String) async throws {
+        let (app, window, input) = try await openVerified(chatName)
+        let existing = (attr(input, kAXValueAttribute) as? String) ?? ""
+        guard existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw SendError.draftNotEmpty }
+
+        // 暂存剪贴板
+        let pb = NSPasteboard.general
+        let saved: [NSPasteboardItem] = (pb.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for t in item.types { if let d = item.data(forType: t) { copy.setData(d, forType: t) } }
+            return copy
+        }
+        defer {
+            pb.clearContents()
+            if !saved.isEmpty { pb.writeObjects(saved) }
+        }
+        pb.clearContents()
+        pb.writeObjects(urls as [NSURL])
+
+        app.activate()
+        try await Task.sleep(for: .milliseconds(400))
+        AXUIElementSetAttributeValue(input, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        try await Task.sleep(for: .milliseconds(200))
+        pressCommandV()
+
+        // 最多等 10 秒：出现文件预览（底部有「发送」按钮）
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        func previewSendButton() -> AXUIElement? {
+            let windows = (attr(axApp, kAXWindowsAttribute) as? [AXUIElement]) ?? [window]
+            for w in windows {
+                if let b = findAll(w, where: isPreviewSendButton).first { return b }
+            }
+            return nil
+        }
+        var btn: AXUIElement?
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(200))
+            // 安全：如果粘进去的是文字（文件路径），说明没当成文件，清掉、不发
+            let v = ((attr(input, kAXValueAttribute) as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !v.isEmpty {
+                AXUIElementSetAttributeValue(input, kAXValueAttribute as CFString, "" as CFString)
+                throw SendError.pasteFailed
+            }
+            if let b = previewSendButton() { btn = b; break }
+        }
+        guard var button = btn else { throw SendError.filePreviewNoSend }
+
+        // 预览刚弹出时有动画，太早点会被忽略：等按钮可用、再稳 0.8 秒
+        for _ in 0..<10 where (attr(button, kAXEnabledAttribute) as? Bool) == false {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        try await Task.sleep(for: .milliseconds(800))
+
+        // 点「发送」→ 看预览关没关；没关就再点一次；还不行就在 WhatsApp 里按回车（焦点在配文框，回车 = 发送）
+        for attempt in 0..<3 {
+            if attempt < 2 {
+                AXUIElementPerformAction(button, kAXPressAction as CFString)
+            } else {
+                app.activate()
+                try await Task.sleep(for: .milliseconds(300))
+                pressReturn()
+            }
+            for _ in 0..<15 {
+                try await Task.sleep(for: .milliseconds(200))
+                if previewSendButton() == nil { return }   // 预览关了 = 发出去了
+            }
+            if let b = previewSendButton() { button = b }
+        }
+        throw SendError.filePreviewNoSend
+    }
+
+    /// 文件预览里的「发送」按钮。2026-11-10 实测：description「\u{200E}发送」，identifier WAMultiSendBottomBarView_SendButton
+    private static func isPreviewSendButton(_ el: AXUIElement) -> Bool {
+        guard role(el) == kAXButtonRole else { return false }
+        let id = attr(el, kAXIdentifierAttribute) as? String ?? ""
+        if id == "WAMultiSendBottomBarView_SendButton" { return true }
+        if id.isEmpty || id.hasPrefix("MultiSend") || id.hasPrefix("WAMultiSend") || id.hasPrefix("CaptionBar") {
+            return ["发送", "send", "enviar"].contains(norm(desc(el)).lowercased())
+        }
+        return false
+    }
+
+    private static func pressCommandV() {
+        let src = CGEventSource(stateID: .hidSystemState)
+        let down = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: true)   // V
+        let up = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: false)
+        down?.flags = .maskCommand; up?.flags = .maskCommand
+        down?.post(tap: .cghidEventTap); up?.post(tap: .cghidEventTap)
     }
 
     /// 给一个手机号发消息（可以是从没聊过的人）：用 WhatsApp 官方链接 whatsapp://send 打开聊天并预填文字，再点「发送」。
@@ -213,6 +316,30 @@ enum WhatsAppSender {
     }
 
     static var isInstalled: Bool { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil }
+
+    /// 诊断：列出 WhatsApp 所有窗口里的按钮（描述 / 标题 / 帮助 / 标识 / 是否可用 / 深度），不限数量
+    static func dumpButtons() {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { print("WhatsApp 没运行"); return }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        let wins = (attr(axApp, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+        for (wi, w) in wins.enumerated() {
+            var queue: [(AXUIElement, Int)] = [(w, 0)]
+            var visited = 0
+            while !queue.isEmpty {
+                let (el, d) = queue.removeFirst(); visited += 1
+                let r = role(el)
+                if r == kAXButtonRole || r == "AXSheet" || r == "AXDialog" || r == kAXTextAreaRole || r == kAXTextFieldRole {
+                    let t = attr(el, kAXTitleAttribute) as? String ?? ""
+                    let h = attr(el, kAXHelpAttribute) as? String ?? ""
+                    let i = attr(el, "AXIdentifier") as? String ?? ""
+                    let en = (attr(el, kAXEnabledAttribute) as? Bool).map { $0 ? "" : " [不可用]" } ?? ""
+                    print("win\(wi) #\(visited) d\(d) \(r) desc=「\(desc(el))」 title=「\(t)」 help=「\(h)」 id=「\(i)」\(en)")
+                }
+                if let kids = attr(el, kAXChildrenAttribute) as? [AXUIElement] { queue.append(contentsOf: kids.map { ($0, d + 1) }) }
+            }
+            print("win\(wi)：共 \(visited) 个元素")
+        }
+    }
 
     static func dump() {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { print("WhatsApp 没运行"); return }
