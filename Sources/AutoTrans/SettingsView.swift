@@ -11,6 +11,8 @@ struct SettingsView: View {
                 PermissionStatus()
                 Divider()
                 EngineSection()
+                Divider()
+                VoiceSection()
             }
             .padding(28)
         }
@@ -257,6 +259,116 @@ struct PermissionStatus: View {
                 axOK = WhatsAppSender.hasPermission
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+}
+
+// MARK: - 语音消息转文字（可选）
+
+/// 设置页和首次向导共用
+struct VoiceSection: View {
+    @EnvironmentObject var model: AppModel
+    @State private var detected: [URL] = []
+    @State private var testing = false
+    @State private var testResult: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("语音消息转文字（可选）").font(Theme.label)
+            Text("对方发来语音时，在这台电脑上用 Whisper large-v3 把语音转成文字，再翻译成中文。录音不上传到网上，不花钱。")
+                .font(Theme.body)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("• 需要一个约 2.9 GB 的语音模型，只下载一次。")
+                Text("• 第一次使用时，系统要花 5–10 分钟优化模型（只有这一次），之后打开几秒就好。")
+                Text("• 运行时占用约 3 GB 内存；一条 10 秒的语音大约 2–3 秒转完。")
+                Text("• 不需要的话可以跳过，语音消息就只显示「［语音］」。以后随时可以在设置里开启。")
+            }
+            .font(Theme.small).foregroundStyle(Theme.inkSoft)
+
+            // 当前状态
+            if let folder = model.whisperFolder {
+                Text("✓ 已开启：\(folder.path)")
+                    .font(Theme.small).foregroundStyle(Theme.accent).textSelection(.enabled)
+                HStack(spacing: 12) {
+                    Button(testing ? "加载中…（第一次可能要几分钟）" : "检查能不能用") { test(folder) }
+                        .disabled(testing)
+                    Button("关闭语音转文字") { model.disableWhisper(); testResult = nil }
+                }
+                .font(Theme.body).controlSize(.large)
+                if let testResult { Text(testResult).font(Theme.small).textSelection(.enabled) }
+            } else {
+                Text("✗ 还没开启").font(Theme.small).foregroundStyle(Theme.warn)
+
+                // 方式一：本机已经有模型
+                if !detected.isEmpty {
+                    Text("在这台电脑上找到了已下载的模型，可以直接用：").font(Theme.small)
+                    ForEach(detected, id: \.self) { url in
+                        HStack {
+                            Text(url.path).font(.system(size: 15 * Theme.scale, design: .monospaced))
+                                .lineLimit(2).textSelection(.enabled)
+                            Spacer()
+                            Button("用这个") { model.useWhisperFolder(url.path) }.font(Theme.body)
+                        }
+                    }
+                }
+
+                // 方式二：下载
+                if let p = model.whisperDownload {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ProgressView(value: p)
+                        HStack {
+                            Text(String(format: "正在下载 %.0f%%（共约 2.9 GB）", p * 100)).font(Theme.small)
+                            Spacer()
+                            Button("取消下载") { model.cancelWhisperDownload() }.font(Theme.small)
+                        }
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        Button("下载语音模型（\(WhisperModel.sizeText)）") { model.startWhisperDownload() }
+                            .buttonStyle(.borderedProminent).tint(Theme.accent)
+                        // 方式三：自己指定
+                        Button("我已经下载过，选择文件夹…") { choose() }
+                    }
+                    .font(Theme.body).controlSize(.large)
+                    Text("下载到：\(WhisperModel.base.path)（不在 OneDrive 里）。这台电脑还剩 \(WhisperModel.gb(WhisperModel.freeSpace())) 空间。")
+                        .font(Theme.small).foregroundStyle(Theme.inkSoft).textSelection(.enabled)
+                }
+            }
+            if let m = model.whisperMessage {
+                Text(m).font(Theme.small)
+                    .foregroundStyle(m.hasPrefix("✗") ? Theme.warn : Theme.ink).textSelection(.enabled)
+            }
+        }
+        .onAppear { detected = WhisperModel.detectExisting() }
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "用这个文件夹"
+        panel.message = "选择 Whisper 模型文件夹（里面有 AudioEncoder.mlmodelc 等文件），选它的上一级也可以"
+        if panel.runModal() == .OK, let url = panel.url {
+            let info = WhisperModel.resolve(url.path).map(WhisperModel.folderInfo)
+            model.useWhisperFolder(url.path)
+            if let info, info.cloudOnly {
+                model.whisperMessage = "⚠ 已使用，但这个文件夹里有 OneDrive「仅在线」的文件，第一次用时要先从云端下载，会很慢。建议在访达里右键 →「始终保留在此设备上」。"
+            }
+        }
+    }
+
+    private func test(_ folder: URL) {
+        testing = true
+        testResult = nil
+        let t0 = Date()
+        Task {
+            do {
+                try await VoiceTranscriber.shared.warmUp(folder)
+                testResult = String(format: "✓ 模型能用（加载用了 %.0f 秒）", Date().timeIntervalSince(t0))
+            } catch {
+                testResult = "✗ 加载失败：\(error.localizedDescription)"
+            }
+            testing = false
         }
     }
 }

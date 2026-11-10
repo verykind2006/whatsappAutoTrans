@@ -122,6 +122,29 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     Task { code = await runOutgoingSelfTest(CommandLine.arguments); sema.signal() }
     sema.wait()
     exit(code)
+} else if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--selftest-voice" {
+    // autoTrans --selftest-voice <语音文件> [模型目录]：本机 Whisper 转文字
+    let sema = DispatchSemaphore(value: 0)
+    var code: Int32 = 0
+    Task {
+        let a = CommandLine.arguments
+        let folder = (a.count > 3 ? WhisperModel.resolve(a[3]) : nil) ?? WhisperModel.detectExisting().first
+        if let folder {
+            print("模型：\(folder.path)")
+            do {
+                let t0 = Date()
+                try await VoiceTranscriber.shared.warmUp(folder)
+                print(String(format: "加载 %.1f 秒", Date().timeIntervalSince(t0)))
+                let t1 = Date()
+                let t = try await VoiceTranscriber.shared.transcribe(a[2], modelFolder: folder)
+                print(String(format: "转写 %.1f 秒（语音 %.1f 秒）", Date().timeIntervalSince(t1), t.seconds ?? 0))
+                print("语言：\(t.language ?? "?")\n文字：\(t.text)")
+            } catch { print("✗ \(error.localizedDescription)"); code = 1 }
+        } else { print("✗ 没找到模型目录"); code = 2 }
+        sema.signal()
+    }
+    sema.wait()
+    exit(code)
 } else if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--selftest-local" {
     let sema = DispatchSemaphore(value: 0)
     var code: Int32 = 0

@@ -19,11 +19,17 @@ struct Message: Identifiable, Hashable {
     let date: Date
     let kind: Kind
     let text: String     // 文字内容（图片说明、文件名等也放这里）
-    var mediaPath: String? = nil  // 图片在本机的完整路径；WhatsApp 还没下载的为 nil
+    var mediaPath: String? = nil  // 图片/语音在本机的完整路径；WhatsApp 还没下载的为 nil
+
+    /// 语音消息：把识别出的文字放进 text，后面的翻译、显示、通知都照文字消息处理
+    func withTranscript(_ t: String) -> Message {
+        Message(id: id, chatID: chatID, isFromMe: isFromMe, sender: sender, date: date,
+                kind: kind, text: t, mediaPath: mediaPath)
+    }
 
     /// 需要翻译的：有文字、不是中文、不只是链接/表情/数字
     var needsTranslation: Bool {
-        guard kind == .text || kind == .link || kind == .image || kind == .video else { return false }
+        guard kind == .text || kind == .link || kind == .image || kind == .video || kind == .audio else { return false }
         return LanguageGuess.isForeign(text)
     }
 }

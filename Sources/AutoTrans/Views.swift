@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 
 // 参考 WhatsApp 桌面版的浅色风格，但字更大、对比更高（用户有老花眼）
 enum Theme {
@@ -188,6 +189,7 @@ struct ChatView: View {
                         MessageRow(message: m,
                                    speaker: model.selectedChat.map { model.speakerName(m, in: $0) } ?? "",
                                    isGroup: model.selectedChat?.isGroup ?? false,
+                                   voice: voiceState(m),
                                    translation: model.translations[m.id],
                                    sent: model.sentRecords[m.id],
                                    isPending: model.pending.contains(m.id))
@@ -206,6 +208,15 @@ struct ChatView: View {
                 if let last = model.messages.last?.id { proxy.scrollTo(last, anchor: .bottom) }
             }
         }
+    }
+
+    private func voiceState(_ m: Message) -> VoiceState {
+        guard m.kind == .audio else { return .none }
+        if m.mediaPath == nil { return .notDownloaded }
+        if !m.text.isEmpty { return .done(model.transcripts[m.id]?.seconds) }
+        if model.whisperFolder == nil { return .off }
+        if model.transcribeFailed.contains(m.id) { return .failed }
+        return .working
     }
 
     private var statusBar: some View {
@@ -374,6 +385,7 @@ struct ChatSidebar: View {
         var body: String
         if let sent = model.sentRecords[m.id] { body = sent.chinese }
         else if let zh = model.translations[m.id] { body = zh }
+        else if let t = model.transcripts[m.id] { body = t.text }
         else { body = m.text }
         let label: String?
         switch m.kind {
@@ -391,10 +403,42 @@ struct ChatSidebar: View {
 
 // MARK: - 一条消息（气泡）
 
+enum VoiceState: Equatable {
+    case none, notDownloaded, off, working, failed
+    case done(Double?)
+}
+
+/// 播放语音（同一时间只放一条）
+@MainActor final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    static let shared = VoicePlayer()
+    @Published var playingID: Int?
+    private var player: AVAudioPlayer?
+
+    func toggle(id: Int, path: String) {
+        if playingID == id { stop(); return }
+        stop()
+        guard let p = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: path)) else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path)); return   // 放不了就交给系统
+        }
+        p.delegate = self
+        p.play()
+        player = p
+        playingID = id
+    }
+
+    func stop() { player?.stop(); player = nil; playingID = nil }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in self.playingID = nil }
+    }
+}
+
 struct MessageRow: View {
     let message: Message
     let speaker: String
     let isGroup: Bool
+    var voice: VoiceState = .none
+    @ObservedObject private var player = VoicePlayer.shared
     let translation: String?
     let sent: SentRecord?
     let isPending: Bool
@@ -440,6 +484,8 @@ struct MessageRow: View {
                         .font(Theme.small).foregroundStyle(Theme.inkSoft)
                 }
 
+                if message.kind == .audio { voiceHeader }
+
                 content
 
                 Text(Self.timeFmt.string(from: message.date))
@@ -457,8 +503,40 @@ struct MessageRow: View {
         }
     }
 
+    /// 语音：🎤 时长 + 播放按钮
+    private var voiceHeader: some View {
+        HStack(spacing: 10) {
+            Text("🎤 语音" + durationText).font(Theme.f(16, .semibold)).foregroundStyle(Theme.inkSoft)
+            if let path = message.mediaPath {
+                let playing = player.playingID == message.id
+                Button { player.toggle(id: message.id, path: path) } label: {
+                    Label(playing ? "停止" : "播放", systemImage: playing ? "stop.fill" : "play.fill")
+                        .font(Theme.f(15, .semibold))
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var durationText: String {
+        guard case .done(let s?) = voice else { return "" }
+        let t = Int(s.rounded())
+        return String(format: " %d:%02d", t / 60, t % 60)
+    }
+
     @ViewBuilder private var content: some View {
-        if let kindLabel, message.text.isEmpty {
+        if message.kind == .audio && message.text.isEmpty {
+            switch voice {
+            case .notDownloaded:
+                Text("还没下载：在 WhatsApp 里点开播放一下，这里就会转成文字").font(Theme.small).foregroundStyle(Theme.inkSoft)
+            case .off:
+                Text("在「设置 → 语音消息转文字」里开启后，会自动转成文字再翻译").font(Theme.small).foregroundStyle(Theme.inkSoft)
+            case .failed:
+                Text("✗ 没能转成文字（可能太短或听不清）").font(Theme.small).foregroundStyle(Theme.warn)
+            default:
+                Text("正在转文字…").font(Theme.body).foregroundStyle(Theme.accent)
+            }
+        } else if let kindLabel, message.text.isEmpty {
             if message.kind != .image { Text(kindLabel).font(Theme.body).foregroundStyle(Theme.inkSoft) }
         } else if let sent, sent.language != TargetLanguage.zh.rawValue {
             // 经 autoTrans 发出的：用户写的中文是主体，下面是实际发出去的外语
@@ -473,9 +551,10 @@ struct MessageRow: View {
             } else {
                 Text("（还没翻译）").font(Theme.body).foregroundStyle(Theme.inkSoft)
             }
-            QuoteBlock(label: "原文", text: (kindLabel ?? "") + message.text)
+            QuoteBlock(label: message.kind == .audio ? "原文（语音识别）" : "原文",
+                       text: (message.kind == .audio ? "" : (kindLabel ?? "")) + message.text)
         } else {
-            Text((kindLabel ?? "") + message.text).font(Theme.body)
+            Text((message.kind == .audio ? "" : (kindLabel ?? "")) + message.text).font(Theme.body)
         }
     }
 }

@@ -40,7 +40,10 @@ if [[ ! -e "$APP/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/def
 fi
 
 # 图标（Resources/AppIcon.icns 由 codex 生成的图转换而来）
-cp "Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+ditto --norsrc --noextattr "Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+# Whisper large-v3 的分词表（2.6 MB），随 App 带上，第一次转写不用联网下载
+rm -rf "$APP/Contents/Resources/whisper-tokenizer"
+ditto --norsrc --noextattr "Resources/whisper-tokenizer" "$APP/Contents/Resources/whisper-tokenizer"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -64,6 +67,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 # 用固定的签名身份签名：这样每次重新编译后，系统给的「完全磁盘访问权限」不会失效。
+# 签名前清掉所有扩展属性（OneDrive / Finder 会给文件加，codesign 不接受）
+xattr -cr "$APP"
 IDENTITY="${SIGN_IDENTITY:-vInput Dev}"   # 没有这个证书就用临时签名
 if security find-identity -v -p codesigning | grep -q "\"$IDENTITY\""; then
   codesign --force --deep --sign "$IDENTITY" "$APP"

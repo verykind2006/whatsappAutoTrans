@@ -1,12 +1,12 @@
 import SwiftUI
 import AppKit
 
-/// 新机器第一次打开时的设置向导：欢迎 → 开权限 → 选翻译方式 → 完成
+/// 新机器第一次打开时的设置向导：欢迎 → 开权限 → 选翻译方式 → 语音（可选）→ 完成
 struct SetupWizard: View {
     @EnvironmentObject var model: AppModel
     @State private var step = 0
     @State private var axOK = WhatsAppSender.hasPermission
-    private let titles = ["欢迎", "读取权限", "发送权限", "选翻译方式", "完成"]
+    private let titles = ["欢迎", "读取权限", "发送权限", "选翻译方式", "语音（可选）", "完成"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,6 +29,7 @@ struct SetupWizard: View {
                     case 1: permission
                     case 2: sendPermission
                     case 3: EngineSection()
+                    case 4: VoiceSection()
                     default: finish
                     }
                 }
@@ -39,7 +40,7 @@ struct SetupWizard: View {
 
             Divider().overlay(Theme.border)
             HStack(spacing: 14) {
-                if step > 0 && step < 4 { Button("上一步") { step -= 1 } }
+                if step > 0 && step < 5 { Button("上一步") { step -= 1 } }
                 Spacer()
                 if step == 2 && !axOK {
                     Button("先跳过（只看翻译，不发消息）") { step = 3 }
@@ -47,11 +48,14 @@ struct SetupWizard: View {
                 if step == 3 && model.configProblem != nil {
                     Button("先跳过，以后在设置里配") { step = 4 }
                 }
-                if step < 4 {
+                if step == 4 && model.whisperFolder == nil {
+                    Button(model.whisperDownload != nil ? "先进入，模型在后台继续下载" : "不需要，跳过") { step = 5 }
+                }
+                if step < 4 || (step == 4 && model.whisperFolder != nil) {
                     Button("下一步") { step += 1 }
                         .keyboardShortcut(.defaultAction)
                         .disabled(!canGoNext)
-                } else {
+                } else if step == 5 {
                     Button("开始使用") {
                         model.setupDone = true
                         model.checkAccess()
@@ -178,7 +182,14 @@ struct SetupWizard: View {
                     ? "\(model.provider.title)，模型 \(model.modelName)"
                     : "本机模型"))
             }
-            Text("以后要更换翻译方式或 key，在菜单「autoTrans → 设置…」（快捷键 ⌘,）。")
+            if model.whisperFolder != nil {
+                Text("✓ 语音消息会转成文字再翻译")
+            } else if model.whisperDownload != nil {
+                Text("⏳ 语音模型正在后台下载，下完自动开启")
+            } else {
+                Text("— 语音消息不转文字（以后可以在设置里开启）").foregroundStyle(Theme.inkSoft)
+            }
+            Text("以后要更换翻译方式、key 或语音设置，在菜单「autoTrans → 设置…」（快捷键 ⌘,）。")
                 .foregroundStyle(Theme.inkSoft)
         }
         .font(Theme.body).lineSpacing(6)

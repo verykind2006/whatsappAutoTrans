@@ -142,6 +142,7 @@ final class AppModel: ObservableObject {
         checkWhatsApp(force: true)
         translations = cache.items
         sentRecords = sentStore.items
+        transcripts = transcriptStore.items
         refreshKeyStatus()
         checkAccess()
         Notifier.shared.onOpenChat = { [weak self] id in self?.selectedChatID = id }
@@ -211,6 +212,7 @@ final class AppModel: ObservableObject {
             handleNewIncoming()
             guard maxID != lastMaxID else {
                 if Date() > retryAfter { translateMissing() }
+                transcribeVisible()
                 return
             }
             lastMaxID = maxID
@@ -246,7 +248,8 @@ final class AppModel: ObservableObject {
                 if chats.contains(where: { $0.id == chatID }) { notified.formUnion(ids) }   // 群聊：跳过
                 continue
             }
-            guard let recent = try? db.messages(chatID: chatID, limit: 20) else { continue }
+            guard let raw = try? db.messages(chatID: chatID, limit: 20) else { continue }
+            let recent = withTranscripts(raw)
             let newOnes = recent.filter { ids.contains($0.id) }
             notified.formUnion(ids.subtracting(newOnes.map(\.id)))   // 一下子来太多、不在最近 20 条里的，不提醒
 
@@ -258,7 +261,10 @@ final class AppModel: ObservableObject {
                 if chatID != selectedChatID { translateInBackground(chat: chat, recent: recent, targets: untranslated) }
                 else if configProblem != nil { bgFailed.formUnion(untranslated.map(\.id)) }
             }
-            let waiting = Set(untranslated.map(\.id))
+            // 语音：能转文字的先转（排队），转完再翻译、再通知
+            let voicePending = newOnes.filter { needsTranscript($0) }
+            voicePending.forEach(enqueueTranscription)
+            let waiting = Set(untranslated.map(\.id)).union(voicePending.map(\.id))
 
             for m in newOnes where !waiting.contains(m.id) {
                 notified.insert(m.id)
@@ -270,7 +276,8 @@ final class AppModel: ObservableObject {
     }
 
     private func notificationText(_ m: Message) -> String {
-        if let zh = translations[m.id] { return zh }
+        if let zh = translations[m.id] { return m.kind == .audio ? "🎤 " + zh : zh }
+        if m.kind == .audio, !m.text.isEmpty { return "🎤 " + m.text }
         let label: String
         switch m.kind {
         case .image: label = "[图片]"
@@ -312,6 +319,128 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: 语音消息转文字（本机 Whisper，可选）
+
+    /// 用户设置的模型目录（下载的，或自己指定的）；空 = 没开这个功能
+    @Published var whisperPath: String = UserDefaults.standard.string(forKey: "whisperPath") ?? "" {
+        didSet {
+            UserDefaults.standard.set(whisperPath, forKey: "whisperPath")
+            whisperFolder = WhisperModel.resolve(whisperPath)
+            transcribeFailed = []
+        }
+    }
+    /// 解析后真正能用的模型文件夹；nil = 语音转文字没开或目录不对
+    @Published private(set) var whisperFolder: URL? = WhisperModel.resolve(UserDefaults.standard.string(forKey: "whisperPath") ?? "")
+    @Published var transcripts: [Int: Transcript] = [:]
+    @Published var transcribing: Set<Int> = []
+    @Published var transcribeFailed: Set<Int> = []
+    /// 下载进度 0…1；nil = 没在下载
+    @Published var whisperDownload: Double?
+    @Published var whisperMessage: String?
+    private var whisperDownloadTask: Task<Void, Never>?
+    private let transcriptStore = TranscriptStore()
+    private var voiceQueue: [(id: Int, path: String)] = []
+    private var voiceWorking = false
+
+    private func withTranscripts(_ list: [Message]) -> [Message] {
+        list.map { m in
+            guard m.kind == .audio, m.text.isEmpty, let t = transcripts[m.id] else { return m }
+            return m.withTranscript(t.text)
+        }
+    }
+
+    func needsTranscript(_ m: Message) -> Bool {
+        m.kind == .audio && m.text.isEmpty && whisperFolder != nil && m.mediaPath != nil
+            && transcripts[m.id] == nil && !transcribeFailed.contains(m.id)
+    }
+
+    /// 当前打开的聊天里，还没转文字的语音
+    func transcribeVisible() {
+        guard whisperFolder != nil else { return }
+        messages.filter(needsTranscript).forEach(enqueueTranscription)
+    }
+
+    private func enqueueTranscription(_ m: Message) {
+        guard let path = m.mediaPath, !transcribing.contains(m.id),
+              !voiceQueue.contains(where: { $0.id == m.id }) else { return }
+        voiceQueue.append((m.id, path))
+        transcribing.insert(m.id)
+        runVoiceQueue()
+    }
+
+    /// 一条一条转（模型只有一份，同时转没有好处）
+    private func runVoiceQueue() {
+        guard !voiceWorking, !voiceQueue.isEmpty, let folder = whisperFolder else { return }
+        voiceWorking = true
+        let job = voiceQueue.removeFirst()
+        Task {
+            let firstLoad = !(await VoiceTranscriber.shared.isLoaded(folder))
+            if firstLoad { status = "正在加载语音模型（第一次要几分钟，以后很快）…" }
+            else { status = "正在把语音转成文字…" }
+            do {
+                let t = try await VoiceTranscriber.shared.transcribe(job.path, modelFolder: folder)
+                transcriptStore.add(job.id, t)
+                transcripts = transcriptStore.items
+            } catch {
+                transcribeFailed.insert(job.id)
+            }
+            transcribing.remove(job.id)
+            status = ""
+            voiceWorking = false
+            reloadMessages()          // 把文字放进消息，翻译会接着做
+            translateMissing()
+            handleNewIncoming()       // 等着这条语音的通知可以发了
+            runVoiceQueue()
+        }
+    }
+
+    func useWhisperFolder(_ path: String) {
+        guard let url = WhisperModel.resolve(path) else {
+            whisperMessage = "✗ 这个文件夹里没找到 Whisper 模型（应有 AudioEncoder.mlmodelc、TextDecoder.mlmodelc、MelSpectrogram.mlmodelc）"
+            return
+        }
+        whisperPath = url.path
+        whisperMessage = "✓ 已使用：\(url.lastPathComponent)"
+    }
+
+    func disableWhisper() {
+        whisperPath = ""
+        whisperMessage = nil
+        Task { await VoiceTranscriber.shared.unload() }
+    }
+
+    func startWhisperDownload() {
+        guard whisperDownload == nil else { return }
+        let free = WhisperModel.freeSpace()
+        if free > 0 && free < WhisperModel.sizeBytes + 1_000_000_000 {
+            whisperMessage = "✗ 磁盘空间不够：需要约 4 GB，现在只剩 \(WhisperModel.gb(free))"
+            return
+        }
+        whisperDownload = 0
+        whisperMessage = nil
+        whisperDownloadTask = Task {
+            do {
+                let url = try await WhisperModel.download { p in
+                    Task { @MainActor in if self.whisperDownload != nil { self.whisperDownload = p } }
+                }
+                whisperDownload = nil
+                useWhisperFolder(url.path)
+                if whisperFolder != nil { whisperMessage = "✓ 下载完成，已启用。第一次转语音时还要加载几分钟。" }
+            } catch {
+                whisperDownload = nil
+                whisperMessage = Task.isCancelled ? "已取消下载（已下完的文件会保留，下次接着下）"
+                    : "✗ 下载失败：\(error.localizedDescription)。可以再点一次下载，会接着下。"
+            }
+        }
+    }
+
+    func cancelWhisperDownload() {
+        whisperDownloadTask?.cancel()
+        whisperDownloadTask = nil
+        whisperDownload = nil
+        whisperMessage = "已取消下载（已下完的文件会保留，下次接着下）"
+    }
+
     /// 重算左侧列表的新消息数。当前打开的聊天视为已读。
     func refreshUnread() {
         guard hasDBAccess, let latest = try? db.latestIncomingByChat() else { return }
@@ -333,7 +462,8 @@ final class AppModel: ObservableObject {
     func reloadMessages() {
         guard let id = selectedChatID else { messages = []; return }
         do {
-            messages = try db.messages(chatID: id)
+            messages = withTranscripts(try db.messages(chatID: id))
+            transcribeVisible()
             errorText = nil
         } catch {
             errorText = "读取消息出错：\(error.localizedDescription)"

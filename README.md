@@ -5,6 +5,7 @@
 - **看消息**：对方发来外语，自动显示中文（下面带原文）。群聊会标出是谁说的。
 - **发消息**：打中文 → 翻译（同时直译回中文供核对）→ 可改 → 发到 WhatsApp 当前聊天。每个聊天记住目标语言（西语 / 英语 / 不翻译）。
 - **新消息**：输入手机号，给还没聊过的人发。
+- **语音**（可选）：语音消息在本机用 Whisper large-v3 转成文字（自动识别中文 / 西语 / 英语…），再翻译。录音不上传。
 - **提醒**：单聊收到新消息时，系统通知直接显示中文翻译。
 - **大字**：⌘+ / ⌘- 调字号，浅色高对比界面。
 
@@ -24,6 +25,7 @@
 - **翻译**：
   - 联网：Anthropic Claude（默认 `claude-opus-5-5`）、OpenAI、DeepSeek，或任意 OpenAI 兼容接口。
   - 本机：MLX 格式的本地模型（如 Qwen2.5-7B-Instruct-4bit），不联网。
+- **语音转文字**：[WhisperKit](https://github.com/argmaxinc/WhisperKit)（MIT）运行 Whisper large-v3（CoreML）。模型约 2.9 GB，可在设置里下载，或指定已下载的文件夹。WhatsApp 语音是 Ogg/Opus，macOS 自带解码。分词表 `Resources/whisper-tokenizer` 来自 [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3)（Apache-2.0），随 App 打包，转写不用联网。
 - API key 存在本机 `~/Library/Application Support/autoTrans/keys.json`（权限 600），不进代码库。
 
 ## 从源码编译
@@ -42,6 +44,7 @@
 ```bash
 autoTrans --selftest-out "明天见"   # 试翻一句（会调用一次 API）
 autoTrans --ax-dump                  # 打印 autoTrans 看到的 WhatsApp 界面
+autoTrans --selftest-voice a.opus [模型目录]   # 本机 Whisper 转一段语音
 ```
 
 ## 代码结构
@@ -54,5 +57,6 @@ autoTrans --ax-dump                  # 打印 autoTrans 看到的 WhatsApp 界�
 | `LocalTranslator.swift` | 本机 MLX 模型翻译 |
 | `AppModel.swift` | 状态、轮询、翻译调度、发送流程、通知 |
 | `Views.swift` / `SettingsView.swift` / `SetupWizard.swift` | 界面 |
+| `Transcriber.swift` | 语音转文字：模型查找 / 下载 / 加载、转写、结果缓存 |
 | `Notifier.swift` | 系统通知 |
 | `Keychain.swift` | API key 本机存储（`KeyStore`） |
