@@ -213,6 +213,7 @@ final class AppModel: ObservableObject {
             guard maxID != lastMaxID else {
                 if Date() > retryAfter { translateMissing() }
                 transcribeVisible()
+                refreshReceipts()
                 return
             }
             lastMaxID = maxID
@@ -461,6 +462,18 @@ final class AppModel: ObservableObject {
             counts[chat, default: 0] += 1
         }
         if counts != unread { unread = counts }
+    }
+
+    /// 没有新消息时，看看我发的、还没「已读」的消息有没有变成送达/已读（对方读了只改状态，不加消息）
+    func refreshReceipts() {
+        let ids = messages.filter { $0.isFromMe && $0.receipt != .read }.map(\.id)
+        guard !ids.isEmpty, let now = try? db.statuses(ids: ids) else { return }
+        var changed = false
+        var updated = messages
+        for i in updated.indices {
+            if let st = now[updated[i].id], st != updated[i].status { updated[i].status = st; changed = true }
+        }
+        if changed { messages = updated }
     }
 
     func reloadMessages() {

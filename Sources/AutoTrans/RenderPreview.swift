@@ -19,11 +19,11 @@ import AppKit
         Message(id: 1, chatID: 900001, isFromMe: false, sender: nil, date: now.addingTimeInterval(-86400 - 600), kind: .text,
                 text: "Hola, ¿qué tal? Mañana paso a las 10 para revisar la caldera."),
         Message(id: 2, chatID: 900001, isFromMe: true, sender: nil, date: now.addingTimeInterval(-86400 - 500), kind: .text,
-                text: "Perfecto, te espero. Gracias."),
+                text: "Perfecto, te espero. Gracias.", status: 8),
         Message(id: 3, chatID: 900001, isFromMe: false, sender: nil, date: now.addingTimeInterval(-900), kind: .audio,
                 text: "Ya estoy en la puerta, podéis bajar cuando queráis.", mediaPath: "/tmp/x.opus"),
         Message(id: 4, chatID: 900001, isFromMe: false, sender: nil, date: now.addingTimeInterval(-600), kind: .text, text: "¿Vale?"),
-        Message(id: 5, chatID: 900001, isFromMe: true, sender: nil, date: now.addingTimeInterval(-300), kind: .document, text: "contrato.pdf"),
+        Message(id: 5, chatID: 900001, isFromMe: true, sender: nil, date: now.addingTimeInterval(-300), kind: .document, text: "contrato.pdf", status: 6),
     ]
     model.messages = m
     model.translations = [1: "你好，最近怎么样？我明天 10 点过来检查一下锅炉。", 3: "我已经在门口了，你们随时可以下来。", 4: "好吗？"]

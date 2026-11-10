@@ -20,11 +20,24 @@ struct Message: Identifiable, Hashable {
     let kind: Kind
     let text: String     // 文字内容（图片说明、文件名等也放这里）
     var mediaPath: String? = nil  // 图片/语音在本机的完整路径；WhatsApp 还没下载的为 nil
+    var status: Int = 0           // ZMESSAGESTATUS：我发的消息的勾，见 Receipt
+
+    /// 我发的消息送到哪一步了。WhatsApp 没公开这些数字，是 2026-11-10 按本机数据推的：
+    /// 0 发送中，1 已发出（一个勾），5/6 已送达（两个灰勾），8 已读（两个蓝勾）
+    enum Receipt { case pending, sent, delivered, read }
+    var receipt: Receipt {
+        switch status {
+        case ..<1: return .pending
+        case 1...4: return .sent
+        case 5...7: return .delivered
+        default: return .read
+        }
+    }
 
     /// 语音消息：把识别出的文字放进 text，后面的翻译、显示、通知都照文字消息处理
     func withTranscript(_ t: String) -> Message {
         Message(id: id, chatID: chatID, isFromMe: isFromMe, sender: sender, date: date,
-                kind: kind, text: t, mediaPath: mediaPath)
+                kind: kind, text: t, mediaPath: mediaPath, status: status)
     }
 
     /// 需要翻译的：有文字、不是中文、不只是链接/表情/数字
@@ -241,6 +254,19 @@ final class WhatsAppDB {
         }
     }
 
+    /// 几条消息现在的状态（勾）。对方读了消息不会新增消息，只改这一列，所以要单独查
+    func statuses(ids: [Int]) throws -> [Int: Int] {
+        guard !ids.isEmpty else { return [:] }
+        return try withDB { db in
+            var out: [Int: Int] = [:]
+            let list = ids.map(String.init).joined(separator: ",")
+            try query(db, "select Z_PK, ZMESSAGESTATUS from ZWAMESSAGE where Z_PK in (\(list))", []) { s in
+                out[Int(sqlite3_column_int64(s, 0))] = Int(sqlite3_column_int64(s, 1))
+            }
+            return out
+        }
+    }
+
     /// 某个聊天最近 limit 条消息（按时间正序返回）。
     /// 注意：Z_PK 不等于时间顺序——手机同步历史记录时，旧消息会后写进来、拿到更大的编号，所以按 ZMESSAGEDATE 排
     func messages(chatID: Int, limit: Int = 40) throws -> [Message] {
@@ -249,7 +275,7 @@ final class WhatsAppDB {
             // 群聊发送人：优先用对方自己设的昵称(ZWAPROFILEPUSHNAME)，其次通讯录名
             try query(db, """
                 select m.Z_PK, m.ZISFROMME, m.ZMESSAGEDATE, m.ZMESSAGETYPE, m.ZTEXT,
-                       m.ZGROUPMEMBER, p.ZPUSHNAME, g.ZCONTACTNAME, i.ZMEDIALOCALPATH
+                       m.ZGROUPMEMBER, p.ZPUSHNAME, g.ZCONTACTNAME, i.ZMEDIALOCALPATH, m.ZMESSAGESTATUS
                 from ZWAMESSAGE m
                 left join ZWAMEDIAITEM i on i.Z_PK = m.ZMEDIAITEM
                 left join ZWAGROUPMEMBER g on g.Z_PK = m.ZGROUPMEMBER
@@ -281,7 +307,8 @@ final class WhatsAppDB {
                                    date: Date(timeIntervalSince1970: sqlite3_column_double(s, 2) + Self.appleEpoch),
                                    kind: kind,
                                    text: Self.str(s, 4) ?? "",
-                                   mediaPath: Self.mediaPath(Self.str(s, 8))))
+                                   mediaPath: Self.mediaPath(Self.str(s, 8)),
+                                   status: Int(sqlite3_column_int64(s, 9))))
             }
             return out.reversed()
         }

@@ -550,9 +550,12 @@ struct MessageRow: View {
 
                 content
 
-                Text(Self.timeFmt.string(from: message.date))
-                    .font(Theme.time).foregroundStyle(Theme.inkSoft)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                HStack(spacing: 8) {
+                    Text(Self.timeFmt.string(from: message.date))
+                    if message.isFromMe { receiptMark }
+                }
+                .font(Theme.time).foregroundStyle(Theme.inkSoft)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .lineSpacing(5)
             .textSelection(.enabled)
@@ -562,6 +565,22 @@ struct MessageRow: View {
             .shadow(color: .black.opacity(0.12), radius: 0.8, y: 1)
             .frame(maxWidth: 560, alignment: message.isFromMe ? .trailing : .leading)
             if !message.isFromMe { Spacer(minLength: 70) }
+        }
+    }
+
+    /// 我发的消息：勾 + 文字（不只靠颜色）。已读用深蓝，WhatsApp 的浅蓝在浅绿气泡上看不清
+    @ViewBuilder private var receiptMark: some View {
+        switch message.receipt {
+        case .pending:
+            Label("发送中", systemImage: "clock").labelStyle(ReceiptLabelStyle())
+        case .sent:
+            Label("已发出", systemImage: "checkmark").labelStyle(ReceiptLabelStyle())
+        case .delivered:
+            Label("已送达", systemImage: "checkmark").labelStyle(ReceiptLabelStyle(double: true))
+        case .read:
+            Label("已读", systemImage: "checkmark").labelStyle(ReceiptLabelStyle(double: true))
+                .foregroundStyle(Color(hex: 0x0B5E8E))
+                .fontWeight(.semibold)
         }
     }
 
@@ -1049,5 +1068,23 @@ struct ComposePanel<Actions: View, Content: View>: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hairline))
         .shadow(color: .black.opacity(0.06), radius: 3, y: 1)
+    }
+}
+
+
+/// 勾的样式：一个勾 / 两个勾叠在一起，后面跟文字
+private struct ReceiptLabelStyle: LabelStyle {
+    var double = false
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            ZStack(alignment: .leading) {
+                configuration.icon
+                if double { configuration.icon.offset(x: 5 * Theme.scale) }
+            }
+            .font(Theme.f(13, .bold))
+            .padding(.trailing, double ? 5 * Theme.scale : 0)
+            configuration.title
+        }
+        .help("WhatsApp 显示的发送状态")
     }
 }
