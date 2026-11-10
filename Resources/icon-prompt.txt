@@ -1,0 +1,10 @@
+A macOS app icon for a chat translation utility, 1024x1024, in the modern macOS style: a rounded-square (squircle) tile with soft depth, subtle top-light gradient and a gentle drop shadow, centered with even margins so it fits Apple's icon grid.
+
+Tile background: warm off-white to very light cream gradient.
+
+Main motif: two overlapping speech bubbles.
+- Back bubble (upper left): solid deep teal-green (#00705A to #0A8F72 gradient), rounded, tail pointing down-left, containing a bold white Chinese character "文".
+- Front bubble (lower right): clean white bubble with a thin teal-green outline and soft shadow, tail pointing down-right, containing a bold deep-teal Latin letter "A".
+- A small curved double-arrow (two arrows chasing each other in a circle) in warm amber (#F2A33A) sits where the two bubbles overlap, suggesting translation back and forth.
+
+Style: flat-but-dimensional, crisp vector-like shapes, high contrast, very legible at small sizes (16px and 32px), no fine detail, no text other than "文" and "A", no phone handset symbol, no logos or brand marks, no photorealism. Plain transparent-looking or white surroundings outside the tile.

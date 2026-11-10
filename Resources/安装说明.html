@@ -1,0 +1,63 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>autoTrans 安装说明</title>
+<style>
+body{background:#fff;color:#111b21;font:19px/1.7 -apple-system,"PingFang SC",sans-serif;max-width:760px;margin:40px auto;padding:0 20px}
+h1{font-size:30px}h2{font-size:23px;margin-top:36px;border-left:6px solid #00705a;padding-left:12px}
+li{margin:8px 0}b{color:#00705a}.warn{background:#fff3c4;border:1px solid #c9a227;padding:12px 16px;border-radius:8px}
+code{font-size:17px;background:#f0f2f5;padding:2px 6px;border-radius:4px}
+</style></head><body>
+<h1>autoTrans 安装说明</h1>
+<p>autoTrans 贴在 WhatsApp 旁边：对方发来外语，自动显示中文；你打中文，翻译后发到 WhatsApp。</p>
+
+<h2>需要什么</h2>
+<ul>
+<li>苹果芯片的 Mac（M1 / M2 / M3 / M4…），系统 macOS 14 或更新。<br>（看法：左上角苹果菜单 → 关于本机，「芯片」一栏写着 Apple M…）</li>
+<li>已经装好并<b>扫码登录</b>的 WhatsApp 桌面版（App Store 里的 WhatsApp）。</li>
+<li>一个翻译用的 API key（例如 Anthropic Claude 的 key，以 <code>sk-ant-</code> 开头）。找给你这个程序的人要。</li>
+</ul>
+
+<h2>第 1 步：拖进「应用程序」</h2>
+<p>把 <b>autoTrans</b> 图标拖到旁边的 <b>应用程序</b> 文件夹上。然后可以把这个窗口关掉、在访达左边把「autoTrans」磁盘推出。</p>
+
+<h2>第 2 步：第一次打开</h2>
+<p>到「应用程序」里双击 autoTrans。</p>
+<div class="warn">
+<p>因为这个程序没有在苹果那里付费登记，第一次打开时 macOS 会拦住，说「无法验证」或「Apple 无法检查其是否包含恶意软件」。这是正常的，按下面做一次就好：</p>
+<ol>
+<li>在提示框里点 <b>完成</b>（不要点「移到废纸篓」）。</li>
+<li>打开 <b>系统设置 → 隐私与安全性</b>，往下翻到「安全性」那一段。</li>
+<li>能看到「已阻止 autoTrans…」，点旁边的 <b>仍要打开</b>，输入电脑密码。</li>
+<li>再双击 autoTrans，弹框里点 <b>打开</b>。以后就不会再问了。</li>
+</ol>
+</div>
+
+<h2>第 3 步：跟着设置向导走</h2>
+<ol>
+<li><b>读取权限（完全磁盘访问权限）</b>：用来读 WhatsApp 的聊天记录（只读，不改）。按向导里的按钮打开系统设置，把 autoTrans 的开关打开。打开后可能需要点向导里的「重新打开 autoTrans」。</li>
+<li><b>发送权限（设备控制和数据访问）</b>：用来把翻好的消息填进 WhatsApp 并点发送。同样在系统设置里把 autoTrans 打开。只看不发的话可以跳过。</li>
+<li><b>翻译方式</b>：选「联网模型」，服务商选 Anthropic，粘贴 API key，点「验证并保存」。看到 ✓ 就好了。</li>
+</ol>
+<p>之后 macOS 会问「autoTrans 想给你发送通知」，点 <b>允许</b>——这样对方来消息时，屏幕右上角会弹出中文翻译。</p>
+
+<h2>怎么用</h2>
+<ul>
+<li>左边点一个聊天，右边就是中文翻译（下面带原文）。</li>
+<li>底部打中文 → <b>⌘+回车</b> 翻译 → 核对（「意思是」那行是译文再翻回中文，方便你检查）→ 再按 <b>⌘+回车</b> 发送。</li>
+<li>给新号码发：左上角「新消息」，填带国家码的号码（如 +34 600 123 456）。</li>
+<li>字太小或太大：<b>⌘ +</b> 放大，<b>⌘ -</b> 缩小，<b>⌘ 0</b> 还原。</li>
+<li>WhatsApp 要一直开着并登录；autoTrans 也要开着才能收到提醒。</li>
+</ul>
+
+<h2>隐私</h2>
+<ul>
+<li>API key 只存在这台电脑：<code>~/Library/Application Support/autoTrans/keys.json</code>（只有当前用户能读）。</li>
+<li>需要翻译的消息会发给你选的翻译服务（如 Anthropic）。不翻译的内容不会发出去。</li>
+<li>autoTrans 不改 WhatsApp 的程序和数据，只在旁边读、在旁边发。</li>
+</ul>
+
+<h2>卸载</h2>
+<ol>
+<li>退出 autoTrans，把「应用程序」里的 autoTrans 拖到废纸篓。</li>
+<li>在访达按 ⇧⌘G，输入 <code>~/Library/Application Support/autoTrans</code>，把这个文件夹删掉（里面是 key 和翻译缓存）。</li>
+<li>系统设置 → 隐私与安全性 →「完全磁盘访问权限」和「设备控制和数据访问」里，把 autoTrans 删掉。</li>
+</ol>
+</body></html>

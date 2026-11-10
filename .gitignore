@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+dist/
+*.xcodeproj/
+DerivedData/
+.DS_Store
+# 项目笔记里有个人信息（电话、账户），只留在本机
+CLAUDE.md
+keys.json
