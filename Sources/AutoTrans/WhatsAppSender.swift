@@ -70,15 +70,7 @@ enum WhatsAppSender {
 
         // 1. 如果没打开这个聊天，就点左侧列表里对应的那一行
         if !openChatTitles(window).contains(want) {
-            guard let row = findAll(window, where: { role($0) == kAXButtonRole && norm(desc($0)) == want }).first else {
-                throw SendError.chatNotFound(chatName)
-            }
-            AXUIElementPerformAction(row, kAXPressAction as CFString)
-            // 最多等 3 秒，直到右侧标题变成这个聊天
-            for _ in 0..<15 {
-                try await Task.sleep(for: .milliseconds(200))
-                if openChatTitles(window).contains(want) { break }
-            }
+            try await openChatRow(want, chatName: chatName, app: app, window: window)
         }
 
         // 2. 核对：右侧标题必须是这个聊天，否则不发
@@ -88,6 +80,64 @@ enum WhatsAppSender {
 
         guard let input = findAll(window, where: { role($0) == kAXTextAreaRole }).first else { throw SendError.noInput }
         return (app, window, input)
+    }
+
+    /// 在 WhatsApp 左侧列表里找到并点开聊天 want（已 norm 过）。依次试：
+    /// 1. 按钮名正好是聊天名（普通行）；名字后面带「, 未读…」之类附加字的行（只有一个时才用）
+    /// 2. 被选中的那一行是 AXStaticText 不是按钮（2026-11-13：选中的行右侧却没打开时，旧逻辑找不到）
+    /// 3. 左栏不在「聊天」页（在「更新 / 通话 / 已归档」等）：先点「聊天」再找
+    @MainActor
+    private static func openChatRow(_ want: String, chatName: String, app: NSRunningApplication, window: AXUIElement) async throws {
+        func waitOpen() async throws -> Bool {
+            for _ in 0..<15 {   // 最多等 3 秒，直到右侧变成这个聊天
+                try await Task.sleep(for: .milliseconds(200))
+                if openChatTitles(window).contains(want) { return true }
+            }
+            return false
+        }
+        func candidates() -> [AXUIElement] {
+            let buttons = findAll(window, where: { role($0) == kAXButtonRole })
+            if let exact = buttons.first(where: { norm(desc($0)) == want }) { return [exact] }
+            let prefixed = buttons.filter {
+                let d = norm(desc($0))
+                return d.hasPrefix(want) && d.dropFirst(want.count).first.map { "，,·(（".contains($0) } == true
+            }
+            if prefixed.count == 1 { return prefixed }
+            // 选中的行：AXStaticText，连同它的上一级一起试
+            return findAll(window, where: { role($0) == kAXStaticTextRole && norm(desc($0)) == want })
+        }
+        func tryOpen() async throws -> Bool {
+            for el in candidates() {
+                AXUIElementPerformAction(el, kAXPressAction as CFString)
+                if try await waitOpen() { return true }
+                if let parent = attr(el, kAXParentAttribute) {
+                    AXUIElementPerformAction(parent as! AXUIElement, kAXPressAction as CFString)
+                    if try await waitOpen() { return true }
+                }
+                // 辅助功能按不动：把 WhatsApp 切到前面，用鼠标点这一行
+                app.activate()
+                for _ in 0..<20 where NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try await Task.sleep(for: .milliseconds(200))
+                clickCenter(of: el)
+                if try await waitOpen() { return true }
+            }
+            return false
+        }
+
+        if try await tryOpen() { return }
+        // 左栏可能不在「聊天」页：点侧栏的「聊天」再找一次
+        if let tab = findAll(window, where: { [kAXStaticTextRole, kAXButtonRole].contains(role($0)) && norm(desc($0)) == "聊天" }).first {
+            SendLog.add("左侧没找到聊天行，先点「聊天」页")
+            AXUIElementPerformAction(tab, kAXPressAction as CFString)
+            if let parent = attr(tab, kAXParentAttribute) { AXUIElementPerformAction(parent as! AXUIElement, kAXPressAction as CFString) }
+            try await Task.sleep(for: .milliseconds(600))
+            if try await tryOpen() { return }
+        }
+        let seen = findAll(window, where: { role($0) == kAXButtonRole }).map { desc($0) }.filter { !$0.isEmpty }.prefix(30)
+        SendLog.add("找不到聊天行（\(want.count) 个字）。当前按钮：\(seen.count) 个；右侧标题：\(openChatTitles(window).count) 个")
+        throw SendError.chatNotFound(chatName)
     }
 
     /// 把 text 发到名为 chatName 的聊天。发之前已核对过聊天名。
@@ -303,16 +353,8 @@ enum WhatsAppSender {
 
     /// 只打开某个聊天（不发消息）
     @MainActor
-    static func openChat(named chatName: String) throws {
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { throw SendError.notRunning }
-        guard hasPermission else { throw SendError.noPermission }
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
-        guard let window = (attr(axApp, kAXWindowsAttribute) as? [AXUIElement])?.first else { throw SendError.noWindow }
-        let want = norm(chatName)
-        guard let row = findAll(window, where: { role($0) == kAXButtonRole && norm(desc($0)) == want }).first else {
-            throw SendError.chatNotFound(chatName)
-        }
-        AXUIElementPerformAction(row, kAXPressAction as CFString)
+    static func openChat(named chatName: String) async throws {
+        _ = try await openVerified(chatName)
     }
 
     // MARK: 诊断：打印 autoTrans 看到的 WhatsApp 界面（autoTrans --ax-dump）

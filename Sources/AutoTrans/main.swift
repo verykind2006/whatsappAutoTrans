@@ -110,9 +110,13 @@ func runOutgoingSelfTest(_ args: [String]) async -> Int32 {
 
 if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     // 诊断：只在 WhatsApp 里点开某个聊天，不发消息
-    do { try MainActor.assumeIsolated { try WhatsAppSender.openChat(named: CommandLine.arguments[2]) }; print("pressed") }
-    catch { print("✗", error.localizedDescription) }
-    exit(0)
+    let name = CommandLine.arguments[2]
+    Task { @MainActor in
+        do { try await WhatsAppSender.openChat(named: name); print("✓ 已打开并核对") }
+        catch { print("✗", error.localizedDescription) }
+        exit(0)
+    }
+    RunLoop.main.run()
 } else if CommandLine.arguments.count > 3, CommandLine.arguments[1] == "--render" {
     // 用假数据把界面画成 PNG，看排版用：autoTrans --render main|settings|wizard0…5|compose out.png
     MainActor.assumeIsolated { renderPreview(CommandLine.arguments[2], to: CommandLine.arguments[3]) }
