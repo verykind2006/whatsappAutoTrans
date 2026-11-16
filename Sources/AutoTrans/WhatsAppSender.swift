@@ -18,7 +18,7 @@ enum WhatsAppSender {
         var errorDescription: String? {
             switch self {
             case .notRunning: return "WhatsApp 没有打开，请先打开 WhatsApp"
-            case .noPermission: return "autoTrans 还没有「设备控制和数据访问」（辅助功能）权限，不能操作 WhatsApp。请在设置向导或系统设置里打开"
+            case .noPermission: return "autoTransWhatsapp 还没有「设备控制和数据访问」（辅助功能）权限，不能操作 WhatsApp。请在设置向导或系统设置里打开"
             case .noWindow: return "WhatsApp 的窗口没有打开，请点一下程序坞里的 WhatsApp"
             case .chatNotFound(let n): return "在 WhatsApp 左侧列表里没找到「\(n)」。请先在 WhatsApp 里把这个聊天点开一次，再发送"
             case .wrongChat(let want, let got): return "WhatsApp 打开的是「\(got)」，不是「\(want)」，为防止发错人，没有发送"
@@ -38,7 +38,7 @@ enum WhatsAppSender {
 
     static var hasPermission: Bool { AXIsProcessTrusted() }
 
-    /// 弹出系统的授权提示（会把 autoTrans 自动加进列表）
+    /// 弹出系统的授权提示（会把 autoTransWhatsapp 自动加进列表）
     static func requestPermission() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(opts)
@@ -338,7 +338,7 @@ enum WhatsAppSender {
         try await Task.sleep(for: .milliseconds(300))
     }
 
-    /// 发完把 autoTrans 窗口切回最前面。
+    /// 发完把 autoTransWhatsapp 窗口切回最前面。
     /// macOS 14 起普通的 activate() 是「请求」，别的程序在前台时可能被忽略；
     /// 所以再用辅助功能把自己设为最前（有「设备控制」权限时一定生效）。
     @MainActor
@@ -357,7 +357,7 @@ enum WhatsAppSender {
         _ = try await openVerified(chatName)
     }
 
-    // MARK: 诊断：打印 autoTrans 看到的 WhatsApp 界面（autoTrans --ax-dump）
+    // MARK: 诊断：打印 autoTransWhatsapp 看到的 WhatsApp 界面（autoTransWhatsapp --ax-dump）
     enum AppState: Equatable {
         case notRunning      // 没打开
         case noWindow        // 开着但窗口关了

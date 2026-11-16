@@ -441,7 +441,7 @@ struct ChatSidebar: View {
         .buttonStyle(.plain)
     }
 
-    /// 第二行：最后一条消息。外语有译文就显示中文；经 autoTrans 发出的显示中文原文
+    /// 第二行：最后一条消息。外语有译文就显示中文；经 autoTransWhatsapp 发出的显示中文原文
     private func preview(_ c: Chat) -> String {
         guard let m = model.previews[c.id] else { return "" }
         var body: String
@@ -643,7 +643,7 @@ struct MessageRow: View {
         } else if let kindLabel, message.text.isEmpty {
             if message.kind != .image { Text(kindLabel).font(Theme.body).foregroundStyle(Theme.inkSoft) }
         } else if let sent, sent.language != TargetLanguage.zh.rawValue {
-            // 经 autoTrans 发出的：用户写的中文是主体，下面是实际发出去的外语
+            // 经 autoTransWhatsapp 发出的：用户写的中文是主体，下面是实际发出去的外语
             Text(sent.chinese).font(Theme.body)
             QuoteBlock(label: "已发送（\(TargetLanguage(rawValue: sent.language)?.title ?? "外语")）", text: message.text)
         } else if message.needsTranslation {
@@ -971,10 +971,10 @@ struct WhatsAppGate: View {
         switch model.waState {
         case .notRunning where !WhatsAppSender.isInstalled:
             return ("✗ 这台电脑上没有 WhatsApp",
-                    "autoTrans 要配合 WhatsApp 桌面版使用。请先在 App Store 安装 WhatsApp，用手机扫码登录，然后再打开 autoTrans。", nil)
+                    "autoTransWhatsapp 要配合 WhatsApp 桌面版使用。请先在 App Store 安装 WhatsApp，用手机扫码登录，然后再打开 autoTransWhatsapp。", nil)
         case .notRunning:
             return ("✗ WhatsApp 没有打开",
-                    "autoTrans 是贴在 WhatsApp 旁边用的。请先打开 WhatsApp。", "打开 WhatsApp")
+                    "autoTransWhatsapp 是贴在 WhatsApp 旁边用的。请先打开 WhatsApp。", "打开 WhatsApp")
         case .noWindow:
             return ("✗ WhatsApp 的窗口关着",
                     "WhatsApp 在运行，但窗口没有打开。请点一下程序坞里的 WhatsApp 图标，把窗口打开。", "打开 WhatsApp 窗口")
@@ -986,7 +986,7 @@ struct WhatsAppGate: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            PageHeader(title: "先打开并登录 WhatsApp", subtitle: "autoTrans 贴在 WhatsApp 旁边用，WhatsApp 准备好后这里会自动进入。")
+            PageHeader(title: "先打开并登录 WhatsApp", subtitle: "autoTransWhatsapp 贴在 WhatsApp 旁边用，WhatsApp 准备好后这里会自动进入。")
             Card(String(info.title.dropFirst(2))) {
                 StatusBadge(ok: false, text: "未就绪")
             } content: {

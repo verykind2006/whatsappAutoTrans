@@ -2,14 +2,14 @@ import Foundation
 import AppKit
 import UserNotifications
 
-/// 系统通知：单聊收到新消息时，在屏幕右上角显示中文翻译；点通知就打开 autoTrans 里的这个聊天。
+/// 系统通知：单聊收到新消息时，在屏幕右上角显示中文翻译；点通知就打开 autoTransWhatsapp 里的这个聊天。
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
     /// 点了通知 → 打开哪个聊天（由 AppModel 设置）
     var onOpenChat: ((Int) -> Void)?
 
-    /// 第一次会弹系统提示「autoTrans 想发送通知」，用户点允许后才会显示
+    /// 第一次会弹系统提示「autoTransWhatsapp 想发送通知」，用户点允许后才会显示
     func setup() {
         let c = UNUserNotificationCenter.current()
         c.delegate = self
@@ -38,7 +38,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         completionHandler()
     }
 
-    /// autoTrans 在前台时也显示（正在看的那个聊天不会发通知，由 AppModel 判断）
+    /// autoTransWhatsapp 在前台时也显示（正在看的那个聊天不会发通知，由 AppModel 判断）
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {

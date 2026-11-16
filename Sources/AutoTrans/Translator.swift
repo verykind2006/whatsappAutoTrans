@@ -357,9 +357,9 @@ enum OnlineTranslator {
     }
 }
 
-// MARK: - 通过 autoTrans 发出的消息：记住中文原文
+// MARK: - 通过 autoTransWhatsapp 发出的消息：记住中文原文
 
-/// 一条经 autoTrans 发出的消息：用户写的中文 + 实际发出的语言
+/// 一条经 autoTransWhatsapp 发出的消息：用户写的中文 + 实际发出的语言
 struct SentRecord: Codable {
     let chinese: String
     let language: String   // TargetLanguage.rawValue

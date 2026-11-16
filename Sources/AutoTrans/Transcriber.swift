@@ -47,7 +47,7 @@ enum WhisperModel {
             ?? found.first
     }
 
-    /// 自动找本机已有的模型：autoTrans 自己下载的、WhisperKit 默认位置、vInput 的
+    /// 自动找本机已有的模型：autoTransWhatsapp 自己下载的、WhisperKit 默认位置、vInput 的
     static func detectExisting() -> [URL] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
@@ -114,7 +114,7 @@ enum TranscribeError: Error, LocalizedError {
     case noModel, empty
     var errorDescription: String? {
         switch self {
-        case .noModel: return "还没有设置语音模型（菜单 autoTrans → 设置… → 语音消息转文字）"
+        case .noModel: return "还没有设置语音模型（菜单 autoTransWhatsapp → 设置… → 语音消息转文字）"
         case .empty: return "没听出内容"
         }
     }

@@ -35,7 +35,7 @@ final class AppModel: ObservableObject {
             refreshUnread()   // 点开就算已读
         }
     }
-    /// 每个聊天有几条「还没在 autoTrans 里看过」的新消息
+    /// 每个聊天有几条「还没在 autoTransWhatsapp 里看过」的新消息
     @Published var unread: [Int: Int] = [:]
     /// 每个聊天看到哪条为止（消息编号），存在本机
     private var lastSeen: [Int: Int] = {
@@ -116,7 +116,7 @@ final class AppModel: ObservableObject {
     private let db = WhatsAppDB()
     private let cache = TranslationCache()
     private let sentStore = SentStore()
-    /// 经 autoTrans 发出的消息：编号 → 用户写的中文
+    /// 经 autoTransWhatsapp 发出的消息：编号 → 用户写的中文
     @Published var sentRecords: [Int: SentRecord] = [:]
     private var lastMaxID = -1
     private var timer: Timer?
@@ -208,7 +208,7 @@ final class AppModel: ObservableObject {
         guard hasDBAccess else { return }
         do {
             let maxID = try db.maxMessageID()
-            if notifyAfterID == nil { notifyAfterID = maxID }   // 只提醒 autoTrans 打开以后来的消息
+            if notifyAfterID == nil { notifyAfterID = maxID }   // 只提醒 autoTransWhatsapp 打开以后来的消息
             handleNewIncoming()
             guard maxID != lastMaxID else {
                 if Date() > retryAfter { translateMissing() }
@@ -237,7 +237,7 @@ final class AppModel: ObservableObject {
     private var bgInFlight: Set<Int> = []     // 正在后台翻译的消息
     private var bgFailed: Set<Int> = []       // 后台翻译失败的：通知里直接显示原文
 
-    /// 每次轮询都看一眼：打开 autoTrans 之后，单聊里对方发来的新消息。
+    /// 每次轮询都看一眼：打开 autoTransWhatsapp 之后，单聊里对方发来的新消息。
     /// 需要翻译的先翻（不在当前聊天的也翻），翻好了再发通知；群聊不翻不通知，只显示角标。
     private func handleNewIncoming() {
         guard setupDone, let floor = notifyAfterID,
@@ -491,10 +491,10 @@ final class AppModel: ObservableObject {
     /// 把当前聊天里还没翻译的外语消息，一次性发给联网模型翻（本机模型则逐条翻）
     func translateMissing() {
         guard setupDone, !translating, Date() > retryAfter, let chat = selectedChat else { return }
-        // 经 autoTrans 发出的消息已经有中文原文，不用再翻
+        // 经 autoTransWhatsapp 发出的消息已经有中文原文，不用再翻
         let targets = messages.filter { $0.needsTranslation && translations[$0.id] == nil && sentRecords[$0.id] == nil }
         guard !targets.isEmpty else { status = ""; return }
-        if let problem = configProblem { errorText = "翻译没开始：\(problem)（菜单 autoTrans → 设置…）"; return }
+        if let problem = configProblem { errorText = "翻译没开始：\(problem)（菜单 autoTransWhatsapp → 设置…）"; return }
 
         let transcript = messages.filter { !$0.text.isEmpty }.map { m in
             OnlineTranslator.Line(id: m.id, speaker: speakerName(m, in: chat), text: m.text)
@@ -663,7 +663,7 @@ final class AppModel: ObservableObject {
     @Published var suggestBusy = false
     @Published var styleBusy = false
 
-    /// 从最近发出的消息总结说话风格。经 autoTrans 发的用中文原文（那才是本人的话）
+    /// 从最近发出的消息总结说话风格。经 autoTransWhatsapp 发的用中文原文（那才是本人的话）
     func summarizeStyle() async throws {
         guard let cfg = onlineConfig() else { throw TranslateError.notConfigured(configProblem ?? "翻译设置不完整") }
         let rows = try db.recentOutgoingTexts(limit: 200)
@@ -678,8 +678,8 @@ final class AppModel: ObservableObject {
     /// 根据对话起草 3 条回复；输入框里写的中文当作「要点」
     func suggestReplies() {
         guard !suggestBusy, composingNew || selectedChat != nil else { return }
-        guard engine == .online else { composeError = "建议回复需要联网模型（菜单 autoTrans → 设置… 里选「联网模型」）"; return }
-        guard let cfg = onlineConfig() else { composeError = "不能生成建议：\(configProblem ?? "翻译设置不完整")（菜单 autoTrans → 设置…）"; return }
+        guard engine == .online else { composeError = "建议回复需要联网模型（菜单 autoTransWhatsapp → 设置… 里选「联网模型」）"; return }
+        guard let cfg = onlineConfig() else { composeError = "不能生成建议：\(configProblem ?? "翻译设置不完整")（菜单 autoTransWhatsapp → 设置…）"; return }
         let chat = selectedChat ?? Chat(id: -1, name: recipientLabel, isGroup: false, lastDate: Date())
         let hint = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let lang = targetLanguage
@@ -739,7 +739,7 @@ final class AppModel: ObservableObject {
         composeError = nil; composeStatus = nil
         let lang = targetLanguage
         if lang == .zh { outgoingText = chinese; backTranslation = ""; return }
-        if let problem = configProblem { composeError = "不能翻译：\(problem)（菜单 autoTrans → 设置…）"; return }
+        if let problem = configProblem { composeError = "不能翻译：\(problem)（菜单 autoTransWhatsapp → 设置…）"; return }
 
         let transcript = composingNew ? [] : messages.filter { !$0.text.isEmpty }.map { m in
             OnlineTranslator.Line(id: m.id, speaker: speakerName(m, in: chat), text: m.text)
@@ -790,7 +790,7 @@ final class AppModel: ObservableObject {
             do {
                 do { try await WhatsAppSender.send(text, toChatNamed: chat.name) }
                 catch { WhatsAppSender.bringAutoTransToFront(); throw error }
-                WhatsAppSender.bringAutoTransToFront()   // 发完马上回到 autoTrans，再慢慢确认
+                WhatsAppSender.bringAutoTransToFront()   // 发完马上回到 autoTransWhatsapp，再慢慢确认
                 // 最多等 10 秒，看数据库里有没有出现这条「我发的」消息
                 composeStatus = "已提交给 WhatsApp，正在确认…"
                 var sentID: Int?

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// 菜单 autoTrans → 设置…（⌘,）
+/// 菜单 autoTransWhatsapp → 设置…（⌘,）
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
 
@@ -230,7 +230,7 @@ struct PermissionStatus: View {
     @State private var axOK = WhatsAppSender.hasPermission
 
     var body: some View {
-        Card("系统权限", subtitle: "autoTrans 需要两项权限。在「系统设置 → 隐私与安全性」里开关。") {
+        Card("系统权限", subtitle: "autoTransWhatsapp 需要两项权限。在「系统设置 → 隐私与安全性」里开关。") {
             CardRow(title: "读取聊天记录", detail: "完全磁盘访问权限：读 WhatsApp 本机的聊天数据库（只读）") {
                 StatusBadge(ok: model.hasDBAccess, text: model.hasDBAccess ? "已允许" : "未允许")
             }
@@ -433,7 +433,7 @@ struct ShortcutRecorder: View {
     @State private var monitor: Any?
     @State private var message: String?
 
-    // 只带 ⌘ 时不能用的键：系统和 autoTrans 自己在用
+    // 只带 ⌘ 时不能用的键：系统和 autoTransWhatsapp 自己在用
     private static let reservedCmd: Set<Character> = ["q", "w", "h", "m", "c", "v", "x", "a", "z", ",", "=", "-", "0", "+", "n", "o", "p", "s", "f"]
 
     var body: some View {
@@ -471,7 +471,7 @@ struct ShortcutRecorder: View {
                 message = "✗ 请用字母、数字或符号键"; return nil
             }
             if f == .command && Self.reservedCmd.contains(ch) {
-                message = "✗ ⌘\(String(ch).uppercased()) 已经被系统或 autoTrans 占用了，换一个"; return nil
+                message = "✗ ⌘\(String(ch).uppercased()) 已经被系统或 autoTransWhatsapp 占用了，换一个"; return nil
             }
             model.suggestKey = String(ch)
             model.suggestMods = (f.contains(.command) ? 1 : 0) | (f.contains(.shift) ? 2 : 0)

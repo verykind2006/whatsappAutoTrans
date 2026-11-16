@@ -5,14 +5,14 @@ struct AutoTransApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        Window("autoTrans 翻译", id: "main") {
+        Window("autoTransWhatsapp 翻译", id: "main") {
             RootView()
                 .environmentObject(model)
                 .onAppear { model.start() }
         }
         .defaultSize(width: 980, height: 840)
         .commands {
-            // 「autoTrans → 设置…（⌘,）」由下面的 Settings 场景自动生成，不要再手动加，否则会出现两个
+            // 「autoTransWhatsapp → 设置…（⌘,）」由下面的 Settings 场景自动生成，不要再手动加，否则会出现两个
             // 窗口菜单 → 窗口置顶
             // 显示 → 放大/缩小字号（快捷键实际由 AppModel 里的按键监听处理，⌘= 也算放大）
             CommandGroup(before: .toolbar) {
@@ -33,7 +33,7 @@ struct AutoTransApp: App {
     }
 }
 
-/// 命令行自检：autoTrans --selftest [聊天编号]
+/// 命令行自检：autoTransWhatsapp --selftest [聊天编号]
 /// 读出某个聊天最近的外语消息，翻译最多 5 条并打印。不开窗口。
 func runSelfTest(_ args: [String]) async -> Int32 {
     let db = WhatsAppDB()
@@ -74,9 +74,9 @@ func runSelfTest(_ args: [String]) async -> Int32 {
     }
 }
 
-/// 命令行自检本机模型：autoTrans --selftest-local [模型目录]
+/// 命令行自检本机模型：autoTransWhatsapp --selftest-local [模型目录]
 func runLocalSelfTest(_ args: [String]) async -> Int32 {
-    guard let path = args.dropFirst(2).first else { print("用法：autoTrans --selftest-local <模型目录>"); return 2 }
+    guard let path = args.dropFirst(2).first else { print("用法：autoTransWhatsapp --selftest-local <模型目录>"); return 2 }
     for c in LocalTranslator.checkDirectory(path) { print((c.ok ? "✓ " : "✗ ") + c.text) }
     let samples = [
         "Hola Ana, mañana a las 10 paso por Calle Mayor 5 para arreglar la caldera, ¿vale?",
@@ -96,7 +96,7 @@ func runLocalSelfTest(_ args: [String]) async -> Int32 {
     }
 }
 
-/// 命令行自检发消息的翻译：autoTrans --selftest-out "中文"（只翻译，不发送）
+/// 命令行自检发消息的翻译：autoTransWhatsapp --selftest-out "中文"（只翻译，不发送）
 func runOutgoingSelfTest(_ args: [String]) async -> Int32 {
     let chinese = args.dropFirst(2).first ?? "你好，明天上午10点我在家，你可以过来修一下热水器吗？谢谢！"
     guard let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? KeyStore.readKey(account: "anthropic-api-key") else { print("✗ 没有 Anthropic key"); return 1 }
@@ -118,7 +118,7 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     }
     RunLoop.main.run()
 } else if CommandLine.arguments.count > 3, CommandLine.arguments[1] == "--render" {
-    // 用假数据把界面画成 PNG，看排版用：autoTrans --render main|settings|wizard0…5|compose out.png
+    // 用假数据把界面画成 PNG，看排版用：autoTransWhatsapp --render main|settings|wizard0…5|compose out.png
     MainActor.assumeIsolated { renderPreview(CommandLine.arguments[2], to: CommandLine.arguments[3]) }
     exit(0)
 } else if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--ax-buttons" {
@@ -134,7 +134,7 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     sema.wait()
     exit(code)
 } else if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "--selftest-suggest" {
-    // autoTrans --selftest-suggest ["要点"]：用一段编的对话试一次「建议回复」（会调一次 API）
+    // autoTransWhatsapp --selftest-suggest ["要点"]：用一段编的对话试一次「建议回复」（会调一次 API）
     let sema = DispatchSemaphore(value: 0)
     var code: Int32 = 0
     Task {
@@ -160,7 +160,7 @@ if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--ax-open" {
     sema.wait()
     exit(code)
 } else if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "--selftest-voice" {
-    // autoTrans --selftest-voice <语音文件> [模型目录]：本机 Whisper 转文字
+    // autoTransWhatsapp --selftest-voice <语音文件> [模型目录]：本机 Whisper 转文字
     let sema = DispatchSemaphore(value: 0)
     var code: Int32 = 0
     Task {

@@ -1,4 +1,4 @@
-# autoTrans
+# autoTransWhatsapp
 
 贴在 WhatsApp 桌面版旁边的翻译小窗（macOS）。
 
@@ -14,7 +14,7 @@
 
 ## 下载安装
 
-到 [Releases](../../releases) 下载 `autoTrans-x.x.dmg`，打开后按里面的「安装说明」操作。
+到 [Releases](../../releases) 下载 `autoTransWhatsapp-x.x.dmg`，打开后按里面的「安装说明」操作。
 
 需要：苹果芯片（M 系列）的 Mac、macOS 14 以上、已登录的 WhatsApp 桌面版、一个翻译用的 API key。
 
@@ -36,8 +36,8 @@
 需要完整的 Xcode（不是只有命令行工具），因为 MLX 要编译 Metal 着色器。
 
 ```bash
-./build.sh      # 编译并装到 ~/Applications/autoTrans.app
-./package.sh    # 再打成 dist/autoTrans-<版本>.dmg
+./build.sh      # 编译并装到 ~/Applications/autoTransWhatsapp.app
+./package.sh    # 再打成 dist/autoTransWhatsapp-<版本>.dmg
 ```
 
 签名：默认找名为 `vInput Dev` 的本机自签名证书，没有就用临时签名。可用 `SIGN_IDENTITY="你的证书名" ./build.sh` 指定。用固定证书签名的好处是重新编译后系统权限不用重新授予。
@@ -45,9 +45,9 @@
 命令行自检：
 
 ```bash
-autoTrans --selftest-out "明天见"   # 试翻一句（会调用一次 API）
-autoTrans --ax-dump                  # 打印 autoTrans 看到的 WhatsApp 界面
-autoTrans --selftest-voice a.opus [模型目录]   # 本机 Whisper 转一段语音
+autoTransWhatsapp --selftest-out "明天见"   # 试翻一句（会调用一次 API）
+autoTransWhatsapp --ax-dump                  # 打印 autoTransWhatsapp 看到的 WhatsApp 界面
+autoTransWhatsapp --selftest-voice a.opus [模型目录]   # 本机 Whisper 转一段语音
 ```
 
 ## 代码结构

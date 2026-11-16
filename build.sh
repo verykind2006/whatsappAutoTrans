@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 编译 autoTrans 并打包成 ~/Applications/autoTrans.app
+# 编译 autoTransWhatsapp 并打包成 ~/Applications/autoTransWhatsapp.app
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 # 中间文件放缓存目录，不放 OneDrive，免得同步一大堆临时文件
 DERIVED="$HOME/Library/Caches/autoTrans-xcbuild"
-APP="$HOME/Applications/autoTrans.app"
+APP="$HOME/Applications/autoTransWhatsapp.app"
 
 # 必须用 xcodebuild，不能用 swift build：
 # 本机翻译用的 MLX 需要编译 Metal 着色器（default.metallib），swift build 不编译、也不报错，
@@ -24,10 +24,10 @@ PRODUCTS="$DERIVED/Build/Products/Release"
 [[ -x "$PRODUCTS/AutoTrans" ]] || { print -u2 "构建产物缺失：$PRODUCTS/AutoTrans"; exit 1 }
 
 # 只清理预期路径
-case "$APP" in "$HOME/Applications/autoTrans.app") ;; *) print -u2 "拒绝清理非预期路径：$APP"; exit 1 ;; esac
+case "$APP" in "$HOME/Applications/autoTransWhatsapp.app") ;; *) print -u2 "拒绝清理非预期路径：$APP"; exit 1 ;; esac
 rm -rf -- "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-ditto --norsrc --noextattr "$PRODUCTS/AutoTrans" "$APP/Contents/MacOS/autoTrans"
+ditto --norsrc --noextattr "$PRODUCTS/AutoTrans" "$APP/Contents/MacOS/autoTransWhatsapp"
 
 # 资源包（含 MLX 的 default.metallib）必须一起打进去
 for bundle in "$PRODUCTS"/*.bundle; do
@@ -51,13 +51,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>app.autotrans.mac</string>
-  <key>CFBundleName</key><string>autoTrans</string>
+  <key>CFBundleName</key><string>autoTransWhatsapp</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleDisplayName</key><string>autoTrans</string>
-  <key>CFBundleExecutable</key><string>autoTrans</string>
+  <key>CFBundleDisplayName</key><string>autoTransWhatsapp</string>
+  <key>CFBundleExecutable</key><string>autoTransWhatsapp</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.3.3</string>
-  <key>CFBundleVersion</key><string>9</string>
+  <key>CFBundleShortVersionString</key><string>1.4</string>
+  <key>CFBundleVersion</key><string>10</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
