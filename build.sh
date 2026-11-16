@@ -29,6 +29,23 @@ rm -rf -- "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 ditto --norsrc --noextattr "$PRODUCTS/AutoTrans" "$APP/Contents/MacOS/autoTransWhatsapp"
 
+# Swift 向下兼容库（如 libswiftCompatibilitySpan.dylib）：macOS 26+ 系统自带，
+# 更老的系统（如 macOS 14/15）没有，不带上就启动即崩「Library missing」（2026-11-16 太太机器上踩到）。
+# 程序里所有 @rpath/libswift*.dylib 都从工具链拷进 Contents/Frameworks，并加搜索路径。
+# 搜索顺序是先 /usr/lib/swift（系统自带的优先），找不到才用 App 里带的。
+SWIFT_COMPAT="$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx"
+BIN="$APP/Contents/MacOS/autoTransWhatsapp"
+for lib in ${(f)"$(otool -L "$BIN" | awk '/@rpath\/libswift/ {sub("@rpath/","",$1); print $1}')"}; do
+  [[ -n "$lib" ]] || continue
+  [[ -f "$SWIFT_COMPAT/$lib" ]] || { print -u2 "找不到兼容库 $lib（在 $SWIFT_COMPAT）"; exit 1 }
+  mkdir -p "$APP/Contents/Frameworks"
+  ditto --norsrc --noextattr "$SWIFT_COMPAT/$lib" "$APP/Contents/Frameworks/$lib"
+  print "  带上兼容库 $lib"
+done
+if [[ -d "$APP/Contents/Frameworks" ]] && ! otool -l "$BIN" | grep -q "@executable_path/../Frameworks"; then
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$BIN"
+fi
+
 # 资源包（含 MLX 的 default.metallib）必须一起打进去
 for bundle in "$PRODUCTS"/*.bundle; do
   [[ -e "$bundle" ]] || continue
@@ -56,8 +73,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>autoTransWhatsapp</string>
   <key>CFBundleExecutable</key><string>autoTransWhatsapp</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.4</string>
-  <key>CFBundleVersion</key><string>10</string>
+  <key>CFBundleShortVersionString</key><string>1.4.1</string>
+  <key>CFBundleVersion</key><string>11</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
